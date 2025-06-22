@@ -1,5 +1,3 @@
-// practica1.c (actualizado con manejo de SIGINT)
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +7,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <signal.h>
+#include <ctype.h>
 
 #define MAX_FIELD 256
 #define MAX_SEEDS 10
@@ -38,7 +37,7 @@ typedef struct {
     double dominance_tags;
 } Song;
 
-// Nodo para tabla hash
+// Nodo de la tabla hash
 typedef struct HashNode {
     long position;
     struct HashNode* next;
@@ -54,21 +53,35 @@ HashBucket hashTable[HASH_SIZE];
 unsigned int hash(const char *str) {
     unsigned int hash = 0;
     while (*str)
-        hash = (hash << 5) + *str++;
+        hash = (hash << 5) + tolower(*str++);
     return hash % HASH_SIZE;
 }
 
+// Elimina espacios y pone en minúscula
+void sanitize_input(char *str) {
+    // Eliminar espacios al inicio
+    while (isspace(*str)) memmove(str, str + 1, strlen(str));
+
+    // Eliminar espacios al final
+    char *end = str + strlen(str) - 1;
+    while (end > str && isspace(*end)) *end-- = '\0';
+
+    // Convertir a minúsculas
+    for (int i = 0; str[i]; i++) str[i] = tolower(str[i]);
+}
+
 void insertHash(const char *key, long pos) {
-    unsigned int idx = hash(key);
+    char key_lower[MAX_FIELD];
+    snprintf(key_lower, sizeof(key_lower), "%s", key);
+    sanitize_input(key_lower);
+
+    unsigned int idx = hash(key_lower);
     HashNode *newNode = malloc(sizeof(HashNode));
-    if (!newNode) {
-        perror("malloc");
-        exit(1);
-    }
+    if (!newNode) { perror("malloc"); exit(1); }
     newNode->position = pos;
     newNode->next = hashTable[idx].head;
     hashTable[idx].head = newNode;
-    snprintf(hashTable[idx].key, sizeof(hashTable[idx].key), "%s", key);
+    snprintf(hashTable[idx].key, sizeof(hashTable[idx].key), "%s", key_lower);
 }
 
 void clearHash() {
@@ -92,10 +105,9 @@ void buildIndex(const char *filename) {
 
     char line[LINE_BUFFER];
     long pos = ftell(file);
-    if (!fgets(line, sizeof(line), file)) {
-        perror("Error leyendo encabezado");
-        fclose(file);
-        return;
+    if (!fgets(line, sizeof(line), file)) { // Saltar encabezado
+        perror("Erro al saltar encabezado");
+        exit(1);
     }
 
     printf("[indexer] Comenzando indexación del archivo CSV...\n");
@@ -119,6 +131,8 @@ void buildIndex(const char *filename) {
                 seed = strtok(NULL, ",'");
             }
         }
+        if (i >= 3 && tokens[2]) insertHash(tokens[2], pos); // artista
+        if (i >= 2 && tokens[1]) insertHash(tokens[1], pos); // track
 
         pos = ftell(file);
     }
@@ -131,7 +145,8 @@ Song readSongAt(FILE *file, long pos) {
     fseek(file, pos, SEEK_SET);
     char line[LINE_BUFFER];
     if (!fgets(line, sizeof(line), file)) {
-        perror("Error leyendo línea de canción");
+        perror("Erro al obtener punto");
+        exit(1);
     }
 
     Song song = {0};
@@ -159,10 +174,8 @@ Song readSongAt(FILE *file, long pos) {
         song.valence_tags = atof(tokens[5]);
         song.arousal_tags = atof(tokens[6]);
         song.dominance_tags = atof(tokens[7]);
-
         snprintf(song.genre, sizeof(song.genre), "%s", tokens[11]);
     }
-
     return song;
 }
 
@@ -170,13 +183,24 @@ void printSong(Song s) {
     printf("\n🎶 === Canción encontrada ===\n");
     printf("🎵 Track: %s\n", s.track);
     printf("🎤 Artista: %s\n", s.artist);
-    printf("📀 Género: %s\n", s.genre);
+    printf("💼 Género: %s\n", s.genre);
     printf("💬 Emociones: ");
     for (int i = 0; i < s.seed_count; i++) {
         printf("%s%s", s.seeds[i], (i < s.seed_count - 1) ? ", " : "");
     }
-    printf("\n🎚️ Valence: %.2f | Arousal: %.2f | Dominance: %.2f\n", s.valence_tags, s.arousal_tags, s.dominance_tags);
+    printf("\n🎚️ Valence: %.2f | Arousal: %.2f | Dominance: %.2f\n",
+           s.valence_tags, s.arousal_tags, s.dominance_tags);
     printf("🔗 URL: %s\n", s.lastfm_url);
+}
+
+
+void mostrarMenuPrincipal() {
+    printf("\n🌟 Menú Principal:\n");
+    printf("1. Filtrar por emoción\n");
+    printf("2. Filtrar por artista\n");
+    printf("3. Filtrar por emoción y artista\n");
+    printf("9. Salir\n");
+    printf("Seleccione una opción: ");
 }
 
 void searcher(const char *filename) {
@@ -192,8 +216,9 @@ void searcher(const char *filename) {
     char keyword[MAX_FIELD];
     while (!exit_requested && read(fd_req, keyword, MAX_FIELD) > 0) {
         keyword[strcspn(keyword, "\n")] = '\0';
+        sanitize_input(keyword);
 
-        printf("[searcher] Buscando canciones con emoción: '%s'\n", keyword);
+        printf("[searcher] Buscando canciones con: '%s'\n", keyword);
 
         struct timespec start, end;
         clock_gettime(CLOCK_MONOTONIC, &start);
@@ -203,14 +228,36 @@ void searcher(const char *filename) {
 
         while (node) {
             Song s = readSongAt(file, node->position);
+
+            // Comparar con seeds, artista, track o ID
+            int match = 0;
             for (int i = 0; i < s.seed_count; i++) {
-                if (strcmp(s.seeds[i], keyword) == 0) {
-                    ssize_t bytes_written = write(fd_res, &s, sizeof(Song));
-                    if (bytes_written != sizeof(Song)) {
-                        perror("Error al escribir canción");
-                    }
+                char tmp[MAX_FIELD];
+                snprintf(tmp, MAX_FIELD, "%s", s.seeds[i]);
+                sanitize_input(tmp);
+                if (strcmp(tmp, keyword) == 0) match = 1;
+            }
+
+            char tmp[MAX_FIELD];
+            snprintf(tmp, MAX_FIELD, "%s", s.artist);
+            sanitize_input(tmp);
+            if (strcmp(tmp, keyword) == 0) match = 1;
+
+            snprintf(tmp, MAX_FIELD, "%s", s.track);
+            sanitize_input(tmp);
+            if (strcmp(tmp, keyword) == 0) match = 1;
+
+            snprintf(tmp, MAX_FIELD, "id_%ld", node->position);
+            sanitize_input(tmp);
+            if (strcmp(tmp, keyword) == 0) match = 1;
+
+            if (match){
+                ssize_t bytes_written = write(fd_res, &s, sizeof(Song));
+                if (bytes_written != sizeof(Song)) {
+                    perror("Error al escribir canción");
                 }
             }
+
             node = node->next;
         }
 
@@ -229,18 +276,8 @@ void searcher(const char *filename) {
     close(fd_res);
     fclose(file);
     clearHash();
-    printf("[searcher] Finalizando proceso correctamente. ¡Hasta pronto! ⸜(｡˃ ᵕ ˂ )⸝♡\n");
-}
 
-void mostrarMenuPrincipal() {
-    printf("\n🌟 Menú Principal:\n");
-    printf("1. Filtrar por emoción\n");
-    printf("2. Filtrar por artista\n");
-    printf("3. Filtrar por nombre de canción\n");
-    printf("4. Seleccionar con ID de canción\n");
-    printf("5. Mostrar menú de emociones\n");
-    printf("6. Salir\n");
-    printf("Seleccione una opción: ");
+    printf("[searcher] Finalizando proceso correctamente. ❤️\n");
 }
 
 void interface() {
@@ -251,15 +288,19 @@ void interface() {
 
     while (!exit_requested) {
         mostrarMenuPrincipal();
+
         char opcion[MAX_FIELD];
         if (!fgets(opcion, MAX_FIELD, stdin)) break;
 
         int op = atoi(opcion);
-        if (op == 6) break;
+        if (op == 9) break;
 
-        if (op == 1) {
+        if (op >= 1 && op <= 2) {
             char input[MAX_FIELD];
-            printf("\nIngrese una emoción para buscar: ");
+
+            if(op == 1) printf("\nIngrese una emoción para buscar: ");
+            if(op == 2) printf("\nIngrese una emoción para buscar: ");
+
             if (!fgets(input, MAX_FIELD, stdin)) continue;
             input[strcspn(input, "\n")] = '\0';
 
@@ -275,15 +316,17 @@ void interface() {
                 if (strlen(s.track) == 0) break;
                 printSong(s);
             }
+
             printf("\n🔁 Volviendo al menú principal...\n");
-        } else {
+        }
+        else {
             printf("\n🚧 Esta opción aún no está implementada.\n");
         }
     }
 
     close(fd_req);
     close(fd_res);
-    printf("\n¡Nos vemos pronto! ⸜(｡˃ ᵕ ˂ )⸝♡\n");
+    printf("\n¡Hasta pronto! ᡣ • . • 𐭩 ♡\n");
 }
 
 int main(int argc, char *argv[]) {
