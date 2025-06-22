@@ -88,7 +88,7 @@ int main() {
 
     while (1) {
         int number;
-        printf("\nIntroduce el número de la canci\363n (0 a %d) o -1 para salir: ", total - 1);
+        printf("\nIntroduce el nï¿½mero de la canci\363n (0 a %d) o -1 para salir: ", total - 1);
         scanf("%d", &number);
 
         if (number == -1) {
@@ -97,15 +97,15 @@ int main() {
         }
 
         if (number >= 0 && number < total) {
-            printf("\n?? Información de la canción:\n");
-            printf("- Número: %d\n", number);
+            printf("\n?? Informaciï¿½n de la canciï¿½n:\n");
+            printf("- Nï¿½mero: %d\n", number);
             printf("- Track: %s\n", songs[number].track);
             printf("- Artista: %s\n", songs[number].artist);
-            printf("- Género: %s\n", songs[number].genre);
+            printf("- Gï¿½nero: %s\n", songs[number].genre);
             printf("- Emociones: %s\n", songs[number].seeds);
             printf("- URL LastFM: %s\n", songs[number].lastfm_url);
         } else {
-            printf("? Error: Número fuera de rango.\n");
+            printf("? Error: Nï¿½mero fuera de rango.\n");
         }
     }
 
