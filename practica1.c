@@ -1,4 +1,4 @@
-// practica1.c
+// practica1.c (actualizado con manejo de SIGINT)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <signal.h>
 
 #define MAX_FIELD 256
 #define MAX_SEEDS 10
@@ -16,6 +17,14 @@
 #define PIPE_REQ "/tmp/search_req"
 #define PIPE_RES "/tmp/search_res"
 
+volatile sig_atomic_t exit_requested = 0;
+
+void handle_sigint(int sig) {
+    printf("\n\n⏹️  Interrupción detectada (Ctrl+C). Cerrando programa con seguridad...\n");
+    exit_requested = 1;
+}
+
+// Estructura de la canción
 typedef struct {
     char lastfm_url[MAX_FIELD];
     char track[MAX_FIELD];
@@ -29,6 +38,7 @@ typedef struct {
     double dominance_tags;
 } Song;
 
+// Nodo para tabla hash
 typedef struct HashNode {
     long position;
     struct HashNode* next;
@@ -106,7 +116,7 @@ void buildIndex(const char *filename) {
             char *seed = strtok(seeds_raw, "[]' ");
             while (seed) {
                 insertHash(seed, pos);
-                seed = strtok(NULL, ",' ");
+                seed = strtok(NULL, ",'");
             }
         }
 
@@ -142,7 +152,7 @@ Song readSongAt(FILE *file, long pos) {
         char *seed = strtok(tokens[3], "[]' ");
         while (seed && song.seed_count < MAX_SEEDS) {
             snprintf(song.seeds[song.seed_count++], MAX_FIELD, "%s", seed);
-            seed = strtok(NULL, ",' ");
+            seed = strtok(NULL, ",'");
         }
 
         song.number_of_emotions = atof(tokens[4]);
@@ -180,7 +190,7 @@ void searcher(const char *filename) {
     FILE *file = fopen(filename, "r");
 
     char keyword[MAX_FIELD];
-    while (read(fd_req, keyword, MAX_FIELD) > 0) {
+    while (!exit_requested && read(fd_req, keyword, MAX_FIELD) > 0) {
         keyword[strcspn(keyword, "\n")] = '\0';
 
         printf("[searcher] Buscando canciones con emoción: '%s'\n", keyword);
@@ -190,7 +200,6 @@ void searcher(const char *filename) {
 
         unsigned int idx = hash(keyword);
         HashNode *node = hashTable[idx].head;
-        int found = 0;
 
         while (node) {
             Song s = readSongAt(file, node->position);
@@ -200,17 +209,14 @@ void searcher(const char *filename) {
                     if (bytes_written != sizeof(Song)) {
                         perror("Error al escribir canción");
                     }
-                    found = 1;
                 }
             }
             node = node->next;
         }
 
-        if (!found) {
-            Song empty = {0};
-            if (write(fd_res, &empty, sizeof(Song)) != sizeof(Song)) {
-                perror("Error al escribir vacío");
-            }
+        Song terminator = {0};
+        if (write(fd_res, &terminator, sizeof(Song)) != sizeof(Song)) {
+            perror("Error al escribir vacío");
         }
 
         clock_gettime(CLOCK_MONOTONIC, &end);
@@ -223,46 +229,66 @@ void searcher(const char *filename) {
     close(fd_res);
     fclose(file);
     clearHash();
+    printf("[searcher] Finalizando proceso correctamente. ¡Hasta pronto! ⸜(｡˃ ᵕ ˂ )⸝♡\n");
+}
+
+void mostrarMenuPrincipal() {
+    printf("\n🌟 Menú Principal:\n");
+    printf("1. Filtrar por emoción\n");
+    printf("2. Filtrar por artista\n");
+    printf("3. Filtrar por nombre de canción\n");
+    printf("4. Seleccionar con ID de canción\n");
+    printf("5. Mostrar menú de emociones\n");
+    printf("6. Salir\n");
+    printf("Seleccione una opción: ");
 }
 
 void interface() {
     int fd_req = open(PIPE_REQ, O_WRONLY);
     int fd_res = open(PIPE_RES, O_RDONLY);
 
-    while (1) {
-        char input[MAX_FIELD];
-        printf("\n💡 Bienvenido al Buscador Musical MuSe\n");
-        printf("Ingrese una emoción para buscar (o 'salir'): ");
-        if (!fgets(input, MAX_FIELD, stdin)) {
-            perror("Error leyendo entrada");
-            break;
-        }
-        input[strcspn(input, "\n")] = '\0';
+    printf("\n>⩊< Bienvenido al buscador de canciones por sentimientos ▶︎ •၊၊||၊|။||||| 0:10\n");
 
-        if (strcmp(input, "salir") == 0) break;
+    while (!exit_requested) {
+        mostrarMenuPrincipal();
+        char opcion[MAX_FIELD];
+        if (!fgets(opcion, MAX_FIELD, stdin)) break;
 
-        if (write(fd_req, input, MAX_FIELD) != MAX_FIELD) {
-            perror("Error al enviar búsqueda");
-            continue;
-        }
+        int op = atoi(opcion);
+        if (op == 6) break;
 
-        while (1) {
-            Song s;
-            ssize_t bytes_read = read(fd_res, &s, sizeof(Song));
-            if (bytes_read != sizeof(Song)) {
-                perror("Error al leer canción");
-                break;
+        if (op == 1) {
+            char input[MAX_FIELD];
+            printf("\nIngrese una emoción para buscar: ");
+            if (!fgets(input, MAX_FIELD, stdin)) continue;
+            input[strcspn(input, "\n")] = '\0';
+
+            if (write(fd_req, input, MAX_FIELD) != MAX_FIELD) {
+                perror("Error al enviar búsqueda");
+                continue;
             }
-            if (strlen(s.track) == 0) break;
-            printSong(s);
+
+            while (1) {
+                Song s;
+                ssize_t bytes_read = read(fd_res, &s, sizeof(Song));
+                if (bytes_read != sizeof(Song)) break;
+                if (strlen(s.track) == 0) break;
+                printSong(s);
+            }
+            printf("\n🔁 Volviendo al menú principal...\n");
+        } else {
+            printf("\n🚧 Esta opción aún no está implementada.\n");
         }
     }
 
     close(fd_req);
     close(fd_res);
+    printf("\n¡Nos vemos pronto! ⸜(｡˃ ᵕ ˂ )⸝♡\n");
 }
 
 int main(int argc, char *argv[]) {
+    signal(SIGINT, handle_sigint);
+
     if (argc != 3) {
         printf("Uso: %s <modo> <archivo_csv>\n", argv[0]);
         printf("Modos disponibles: searcher | interface\n");
