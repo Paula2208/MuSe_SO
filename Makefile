@@ -3,7 +3,7 @@
 CC=gcc
 CFLAGS=-Wall -O2 -D_POSIX_C_SOURCE=200809L
 TARGET=p1-dataProgram
-CSV=./Others/muse.csv
+CSV=../muse4gb.csv
 
 all: $(TARGET)
 

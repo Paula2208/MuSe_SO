@@ -3,4 +3,14 @@ CSV=./Others/muse.csv
 Ponerlo en el MakeFile
 muse.csv pesa solo 18Mb
 
+CSV=../muse4gb.csv
+
+Ponerlo en el MakeFile
 muse4gb.csv pesa casi 5GB :'D
+
+Para que funcione, este archivo debe estar en la carpeta justo
+afuera de MuSe_SO, a su lado.
+
+*IMPORTANTE* No intentar subir el archivo de 5GB a github
+o se va a morir por espacio :(. Tenerlo solo en local para
+la presentación y otras pruebas.
