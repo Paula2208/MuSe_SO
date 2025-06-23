@@ -1,0 +1,6 @@
+CSV=./Others/muse.csv
+
+Ponerlo en el MakeFile
+muse.csv pesa solo 18Mb
+
+muse4gb.csv pesa casi 5GB :'D

@@ -122,17 +122,28 @@ void buildIndex(const char *filename) {
             token = strtok(NULL, ",");
         }
 
+        char artist_clean[MAX_FIELD] = "";
+        if (i >= 3 && tokens[2]) {
+            snprintf(artist_clean, sizeof(artist_clean), "%s", tokens[2]);
+            insertHash(artist_clean, pos);
+        }
+
         if (i >= 4 && tokens[3]) {
             char seeds_raw[MAX_FIELD];
             snprintf(seeds_raw, sizeof(seeds_raw), "%s", tokens[3]);
             char *seed = strtok(seeds_raw, "[]' ");
             while (seed) {
                 insertHash(seed, pos);
+
+                if (strlen(artist_clean) > 0) {
+                    char combo[MAX_FIELD * 2];
+                    snprintf(combo, sizeof(combo), "%s_%s", seed, artist_clean);
+                    sanitize_input(combo);
+                    insertHash(combo, pos);
+                }
                 seed = strtok(NULL, ",'");
             }
         }
-        if (i >= 3 && tokens[2]) insertHash(tokens[2], pos); // artista
-        if (i >= 2 && tokens[1]) insertHash(tokens[1], pos); // track
 
         pos = ftell(file);
     }
@@ -229,29 +240,43 @@ void searcher(const char *filename) {
         while (node) {
             Song s = readSongAt(file, node->position);
 
-            // Comparar con seeds, artista, track o ID
             int match = 0;
+
+            // Revisar combinación emoción + artista
             for (int i = 0; i < s.seed_count; i++) {
+                char combined[MAX_FIELD * 2];
+                snprintf(combined, sizeof(combined), "%s_%s", s.seeds[i], s.artist);
+                sanitize_input(combined);
+                if (strcmp(combined, keyword) == 0) {
+                    match = 1;
+                    break;
+                }
+            }
+
+            // Si no fue match con combinación, revisar individuales
+            if (!match) {
+                for (int i = 0; i < s.seed_count; i++) {
+                    char tmp[MAX_FIELD];
+                    snprintf(tmp, MAX_FIELD, "%s", s.seeds[i]);
+                    sanitize_input(tmp);
+                    if (strcmp(tmp, keyword) == 0) match = 1;
+                }
+
                 char tmp[MAX_FIELD];
-                snprintf(tmp, MAX_FIELD, "%s", s.seeds[i]);
+                snprintf(tmp, MAX_FIELD, "%s", s.artist);
+                sanitize_input(tmp);
+                if (strcmp(tmp, keyword) == 0) match = 1;
+
+                snprintf(tmp, MAX_FIELD, "%s", s.track);
+                sanitize_input(tmp);
+                if (strcmp(tmp, keyword) == 0) match = 1;
+
+                snprintf(tmp, MAX_FIELD, "id_%ld", node->position);
                 sanitize_input(tmp);
                 if (strcmp(tmp, keyword) == 0) match = 1;
             }
 
-            char tmp[MAX_FIELD];
-            snprintf(tmp, MAX_FIELD, "%s", s.artist);
-            sanitize_input(tmp);
-            if (strcmp(tmp, keyword) == 0) match = 1;
-
-            snprintf(tmp, MAX_FIELD, "%s", s.track);
-            sanitize_input(tmp);
-            if (strcmp(tmp, keyword) == 0) match = 1;
-
-            snprintf(tmp, MAX_FIELD, "id_%ld", node->position);
-            sanitize_input(tmp);
-            if (strcmp(tmp, keyword) == 0) match = 1;
-
-            if (match){
+            if (match) {
                 ssize_t bytes_written = write(fd_res, &s, sizeof(Song));
                 if (bytes_written != sizeof(Song)) {
                     perror("Error al escribir canción");
@@ -295,14 +320,39 @@ void interface() {
         int op = atoi(opcion);
         if (op == 9) break;
 
-        if (op >= 1 && op <= 2) {
-            char input[MAX_FIELD];
+        if (op >= 1 && op <= 3) {
+            char input[MAX_FIELD] = "";
+            if (op == 1) {
+                printf("\nIngrese una emoción para buscar: ");
+                if (!fgets(input, MAX_FIELD, stdin)) continue;
+                input[strcspn(input, "\n")] = '\0';
+                sanitize_input(input);
+            }
+            else if (op == 2) {
+                printf("\nIngrese el nombre del artista: ");
+                if (!fgets(input, MAX_FIELD, stdin)) continue;
+                input[strcspn(input, "\n")] = '\0';
+                sanitize_input(input);
+            }
+            else if (op == 3) {
+                char emotion[MAX_FIELD], artist[MAX_FIELD];
+                printf("\nIngrese la emoción: ");
+                if (!fgets(emotion, MAX_FIELD, stdin)) continue;
+                emotion[strcspn(emotion, "\n")] = '\0';
+                sanitize_input(emotion);
 
-            if(op == 1) printf("\nIngrese una emoción para buscar: ");
-            if(op == 2) printf("\nIngrese una emoción para buscar: ");
+                printf("Ingrese el artista: ");
+                if (!fgets(artist, MAX_FIELD, stdin)) continue;
+                artist[strcspn(artist, "\n")] = '\0';
+                sanitize_input(artist);
 
-            if (!fgets(input, MAX_FIELD, stdin)) continue;
-            input[strcspn(input, "\n")] = '\0';
+                if (strlen(emotion) + strlen(artist) + 1 < MAX_FIELD) {
+                    snprintf(input, MAX_FIELD, "%s_%s", emotion, artist);
+                } else {
+                    fprintf(stderr, "❌ Error: La combinación emoción + artista es demasiado larga.\n");
+                    continue;
+                }
+            }
 
             if (write(fd_req, input, MAX_FIELD) != MAX_FIELD) {
                 perror("Error al enviar búsqueda");
@@ -318,8 +368,7 @@ void interface() {
             }
 
             printf("\n🔁 Volviendo al menú principal...\n");
-        }
-        else {
+        } else {
             printf("\n🚧 Esta opción aún no está implementada.\n");
         }
     }

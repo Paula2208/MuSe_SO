@@ -2,13 +2,13 @@
 
 CC=gcc
 CFLAGS=-Wall -O2 -D_POSIX_C_SOURCE=200809L
-TARGET=practica1
-CSV=muse_v3.csv
+TARGET=p1-dataProgram
+CSV=./Others/muse.csv
 
 all: $(TARGET)
 
-$(TARGET): practica1.c
-	$(CC) $(CFLAGS) -o $(TARGET) practica1.c
+$(TARGET): p1-dataProgram.c
+	$(CC) $(CFLAGS) -o $(TARGET) p1-dataProgram.c
 
 run-searcher:
 	@echo "🧠 Ejecutando el proceso de búsqueda en nueva terminal..."
