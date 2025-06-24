@@ -4,7 +4,7 @@ CC=gcc
 CFLAGS=-Wall -O2 -D_POSIX_C_SOURCE=200809L
 OUTDIR=output
 TARGET=$(OUTDIR)/p1-dataProgram
-CSV=./Data/muse4gb.csv
+CSV=./Data/muse1gb.csv
 
 # Archivos temporales
 PIPES=$(OUTDIR)/search_req.pipe $(OUTDIR)/search_res.pipe
