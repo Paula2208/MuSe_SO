@@ -25,15 +25,6 @@
 #define READY_FLAG "./output/searcher.ready"
 #define INDEX_BIN_PATH "./output/index.bin"
 
-volatile sig_atomic_t exit_requested = 0;
-
-void clearHash();  
-
-void handle_sigint(int sig) {
-    printf("\n\n⏹️  Interrupción detectada (Ctrl+C). Cerrando programa con seguridad...\n");
-    exit_requested = 1;
-}
-
 // Estructura de la canción
 typedef struct {
     char lastfm_url[MAX_FIELD];
@@ -61,6 +52,19 @@ typedef struct {
 
 HashBucket hashTable[HASH_SIZE];
 
+volatile sig_atomic_t exit_requested = 0;
+
+void handle_sigint(int sig) {
+    printf("\n\n⏹️  Interrupción detectada (Ctrl+C). Cerrando programa con seguridad...\n");
+    exit_requested = 1;
+}
+
+/**
+ * Calcula el valor hash de una cadena de caracteres usando una función hash simple.
+ * 
+ * @param str Cadena de entrada (clave) a hashear. Puede contener mayúsculas o minúsculas.
+ * @return Un valor entero que representa el índice en la tabla hash, entre 0 y HASH_SIZE - 1.
+ */
 unsigned int hash(const char *str) {
     unsigned int hash = 0;
     while (*str)
@@ -68,8 +72,36 @@ unsigned int hash(const char *str) {
     return hash % HASH_SIZE;
 }
 
+/**
+ * Libera toda la memoria ocupada por la tabla hash.
+ * 
+ * Recorre cada bucket de la tabla hash y libera los nodos enlazados,
+ * dejando los punteros en NULL. Esta función se usa antes de recargar
+ * un índice o al finalizar la ejecución para evitar fugas de memoria.
+ */
+void clearHash() {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        HashNode *curr = hashTable[i].head;
+        while (curr) {
+            HashNode *temp = curr;
+            curr = curr->next;
+            free(temp); // Liberar cada nodo
+        }
+        hashTable[i].head = NULL; // Marcar bucket como vacío
+    }
+}
 
-// Guardar tabla hash a disco
+/**
+ * Guarda el contenido de la tabla hash en un archivo binario.
+ * 
+ * @param path Ruta del archivo donde se almacenará el índice serializado.
+ *             El archivo se escribe en modo binario ("wb").
+ * 
+ * Cada entrada guardada contiene:
+ *   - Índice del bucket (int)
+ *   - Clave asociada al bucket (char[MAX_FIELD])
+ *   - Posición del nodo (long)
+ */
 void saveIndex(const char *path) {
     FILE *f = fopen(path, "wb");
     if (!f) {
@@ -77,6 +109,7 @@ void saveIndex(const char *path) {
         return;
     }
 
+    // Recorrer todos los buckets de la tabla hash
     for (int i = 0; i < HASH_SIZE; i++) {
         HashNode *node = hashTable[i].head;
         while (node) {
@@ -92,7 +125,19 @@ void saveIndex(const char *path) {
     printf("[indexer] Índice guardado exitosamente en %s\n", path);
 }
 
-// Cargar tabla hash desde disco
+/**
+ * Carga el índice previamente guardado desde un archivo binario.
+ *
+ * @param path Ruta al archivo binario que contiene el índice serializado.
+ * 
+ * Esta función reconstruye la tabla hash en memoria a partir de los datos
+ * almacenados en disco. Cada entrada incluye:
+ *   - Índice del bucket
+ *   - Clave asociada al bucket
+ *   - Posición del nodo (offset en el archivo CSV)
+ * 
+ * Si el archivo no puede abrirse, se muestra un error.
+ */
 void loadIndex(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -100,7 +145,7 @@ void loadIndex(const char *path) {
         return;
     }
 
-    clearHash(); // Por si hubiera residuos
+    clearHash(); // Limpiar posibles datos previos en la tabla
 
     int bucket_index;
     char key[MAX_FIELD];
@@ -110,6 +155,7 @@ void loadIndex(const char *path) {
            fread(key, sizeof(char), MAX_FIELD, f) == MAX_FIELD &&
            fread(&pos, sizeof(long), 1, f) == 1) {
 
+        // Crear un nuevo nodo para la entrada
         HashNode *newNode = malloc(sizeof(HashNode));
         if (!newNode) { perror("malloc"); exit(1); }
         newNode->position = pos;
@@ -122,26 +168,23 @@ void loadIndex(const char *path) {
     printf("[indexer] Índice cargado desde %s\n", path);
 }
 
-void clearHash() {
-    for (int i = 0; i < HASH_SIZE; i++) {
-        HashNode *curr = hashTable[i].head;
-        while (curr) {
-            HashNode *temp = curr;
-            curr = curr->next;
-            free(temp);
-        }
-        hashTable[i].head = NULL;
-    }
-}
-
-// Modificar el 'insertHash' para trabajar con la nueva clave
+/**
+ * Inserta una nueva entrada en la tabla hash.
+ *
+ * @param key Clave con formato 'arousal_emotion_artist', ya sanitizada.
+ * @param pos Posición en el archivo donde se encuentra la canción.
+ *
+ * La función calcula el índice hash correspondiente a la clave y
+ * agrega un nuevo nodo al bucket correspondiente. Si ya hay nodos en
+ * el bucket, el nuevo se agrega al inicio de la lista enlazada.
+ */
 void insertHash(const char *key, long pos) {
     char key_lower[MAX_KEY];
     snprintf(key_lower, sizeof(key_lower), "%s", key);
 
     if (strlen(key_lower) == 0) return;  // No insertar llaves vacías
 
-    unsigned int idx = hash(key_lower);  // Cálculo del índice en la tabla hash
+    unsigned int idx = hash(key_lower);  // Cálculo del índice del bucket en la tabla hash
     HashNode *newNode = malloc(sizeof(HashNode));  // Crear un nuevo nodo
     if (!newNode) { perror("malloc"); exit(1); }
     newNode->position = pos;
@@ -150,9 +193,18 @@ void insertHash(const char *key, long pos) {
     snprintf(hashTable[idx].key, sizeof(hashTable[idx].key), "%s", key_lower);  // Almacenar la clave
 }
 
+/**
+ * Limpia una cadena eliminando cualquier carácter que no sea una letra
+ * y convierte todos los caracteres a minúsculas.
+ *
+ * @param str Cadena a sanitizar. La transformación es in-place (se modifica directamente).
+ *
+ * Esta función se usa para normalizar entradas como emociones y nombres de artistas
+ * eliminando espacios, signos de puntuación y otros caracteres no alfabéticos.
+ */
 void sanitize_input(char *str) {
-    char original[MAX_FIELD];
-    snprintf(original, sizeof(original), "%s", str);  // Guardar copia de str original
+    // char original[MAX_FIELD];
+    // snprintf(original, sizeof(original), "%s", str);  // Guardar copia de str original
 
     char *src = str, *dst = str;
 
@@ -168,7 +220,20 @@ void sanitize_input(char *str) {
     // printf("[indexer] Clave original: '%s' -> sanitizada: '%s'\n", original, str);
 }
 
-
+/**
+ * Construye la tabla hash de índice a partir de un archivo CSV.
+ *
+ * @param filename Ruta al archivo CSV que contiene los datos de las canciones.
+ *
+ * Esta función:
+ * - Abre el archivo CSV y salta el encabezado.
+ * - Procesa cada línea para extraer los campos relevantes.
+ * - Limpia y normaliza las emociones y el nombre del artista.
+ * - Crea una clave con el formato: arousal_emotion_artist.
+ * - Inserta cada clave en la tabla hash junto con la posición del archivo.
+ * 
+ * Solo se crean entradas por cada emoción individual presente en la canción.
+ */
 void buildIndex(const char *filename) {
     FILE *file = fopen(filename, "r");
     if (!file) {
@@ -199,7 +264,8 @@ void buildIndex(const char *filename) {
         char *tokens[NUM_FIELDS];
         char *p_line = line;
 
-        // Dividir la línea en campos
+        
+        // Separar línea por comas, tratando correctamente campos con corchetes
         for (int i = 0; i < NUM_FIELDS; i++) {
             char *start = p_line;
 
@@ -234,10 +300,8 @@ void buildIndex(const char *filename) {
 
             while (seed) {
                 if (strlen(seed) > 0) {
-                    // Limpiar la emoción
-                    sanitize_input(seed);
+                    sanitize_input(seed); // Limpiar la emoción
                     
-                    // Si la emoción no está vacía, generar la clave
                     if (strlen(seed) > 0 && strlen(artist_clean) > 0) {
                         int arousal = (int) atof(tokens[6]); // Solo la parte entera de arousal
                         char combo[MAX_KEY];
@@ -250,13 +314,25 @@ void buildIndex(const char *filename) {
             }
         }
 
-        pos = ftell(file);
+        pos = ftell(file); // Actualizar posición para la siguiente entrada
     }
 
     fclose(file);
     printf("[indexer] Indexación completada. Total de líneas procesadas: %ld\n", line_count);
 }
 
+/**
+ * Lee y parsea una canción desde una posición específica en un archivo CSV.
+ *
+ * @param file Puntero al archivo CSV ya abierto.
+ * @param pos Posición en el archivo desde la cual comenzar a leer.
+ * @return Estructura Song con los datos extraídos desde la línea correspondiente.
+ *
+ * Esta función:
+ * - Se posiciona en `pos` dentro del archivo.
+ * - Lee una línea y la divide en campos considerando listas y comas.
+ * - Extrae los datos relevantes, incluyendo una lista de emociones.
+ */
 Song readSongAt(FILE *file, long pos) {
     Song song = {0};
     if (fseek(file, pos, SEEK_SET) != 0) {
@@ -275,12 +351,11 @@ Song readSongAt(FILE *file, long pos) {
     for (int i = 0; i < NUM_FIELDS; i++) {
         char *start = p_line;
 
-        // Lógica de parseo idéntica a buildIndex para manejar campos con comas
         while (*p_line && *p_line != ','){
             if(*p_line == '['){
                 while (*p_line && *p_line != ']') p_line++;
             }
-            if (*p_line) p_line++; // Avanzar solo si no es el final del string
+            if (*p_line) p_line++;
         }
         
         if (*p_line) {
@@ -290,14 +365,11 @@ Song readSongAt(FILE *file, long pos) {
         tokens[i] = start;
     }
     
-    // Ahora que los tokens son correctos, los asignamos.
-    // Usamos (i > X) para verificar que el token existe antes de usarlo.
+    // Asignar los campos a la estructura Song
     if (tokens[0]) snprintf(song.lastfm_url, sizeof(song.lastfm_url), "%s", tokens[0]);
     if (tokens[1]) snprintf(song.track, sizeof(song.track), "%s", tokens[1]);
     if (tokens[2]) snprintf(song.artist, sizeof(song.artist), "%s", tokens[2]);
 
-    // <-- NUEVA LÓGICA: Parseo de emociones más preciso
-    // Busca las emociones extrayendo el texto que está entre comillas simples (')
     if (tokens[3]) {
         char *p_seeds = tokens[3];
         while ((p_seeds = strchr(p_seeds, '\'')) != NULL && song.seed_count < MAX_SEEDS) {
@@ -334,6 +406,14 @@ Song readSongAt(FILE *file, long pos) {
     return song;
 }
 
+/**
+ * Imprime los detalles de una canción en un formato legible.
+ *
+ * @param s Estructura Song con los datos de la canción a imprimir.
+ *
+ * Esta función muestra el track, artista, género, emociones y tags de valencia,
+ * excitación y dominancia. También imprime la URL de Last.fm asociada.
+ */
 void printSong(Song s) {
     printf("\n🎶 === Canción encontrada ===\n");
     printf("🎵 Track: %s\n", s.track);
@@ -348,10 +428,17 @@ void printSong(Song s) {
     printf("🔗 URL: %s\n", s.lastfm_url);
 }
 
+/**
+ * Espera a que el searcher esté listo, verificando la existencia de un archivo de señal.
+ *
+ * Esta función se usa para sincronizar la interfaz con el proceso searcher,
+ * asegurando que este último haya terminado de cargar o construir el índice
+ * antes de que la interfaz comience a enviar solicitudes.
+ */
 void wait_for_ready_signal() {
     printf("[interface] Esperando que el searcher esté listo...\n");
     while (!exit_requested) {
-        if (access(READY_FLAG, F_OK) == 0) { // <-- CAMBIO: access() es más simple que stat() para solo chequear existencia
+        if (access(READY_FLAG, F_OK) == 0) { // <-- Access() es más simple que stat() para solo chequear existencia
             printf("[interface] Searcher está listo.\n");
             break;
         }
@@ -359,6 +446,14 @@ void wait_for_ready_signal() {
     }
 }
 
+/**
+ * Imprime información de depuración sobre los buckets de la tabla hash.
+ *
+ * Esta función recorre cada bucket y muestra:
+ * - La clave original del bucket.
+ * - Cada nodo en el bucket, su posición y la clave asociada.
+ * - El hash calculado para la clave del bucket.
+ */
 void debug_print_buckets() {
     for (int i = 0; i < 2; i++) {
         if (hashTable[i].head != NULL) {
@@ -383,6 +478,13 @@ void debug_print_buckets() {
     }
 }
 
+/**
+ * Crea un archivo de señal que indica que el proceso de búsqueda está listo.
+ *
+ * Este archivo (definido por la constante READY_FLAG) es usado para indicar 
+ * al proceso interfaz que el indexador ha terminado de cargar o construir el índice.
+ * No recibe parámetros ni retorna valor.
+ */
 void create_ready_signal() {
     FILE *ready_file = fopen(READY_FLAG, "w");
     if (ready_file) {
@@ -393,6 +495,17 @@ void create_ready_signal() {
     }
 }
 
+/**
+ * Crea el archivo de señal y maneja la lógica de búsqueda.
+ *
+ * @param filename Ruta al archivo CSV que contiene los datos de las canciones.
+ *
+ * Esta función:
+ * - Verifica si ya existe un índice guardado.
+ * - Si no, construye el índice desde el CSV y lo guarda en un proceso hijo.
+ * - Abre los pipes para recibir solicitudes de búsqueda y enviar resultados.
+ * - Procesa las búsquedas hasta que se solicite una interrupción.
+ */
 void searcher(const char *filename) {
     if (access(INDEX_BIN_PATH, F_OK) == 0) {
         printf("[searcher] Archivo binario de índice encontrado. Cargando...\n");
@@ -567,6 +680,13 @@ void searcher(const char *filename) {
     printf("\n¡Hasta pronto! ᡣ • . • 𐭩 ♡\n");
 }
 
+/**
+ * Muestra el menú principal de la interfaz de usuario por consola.
+ *
+ * Esta función imprime las opciones disponibles para que el usuario 
+ * interactúe con el sistema de búsqueda de canciones.
+ * No recibe parámetros ni retorna valor.
+ */
 void mostrarMenuPrincipal() {
     printf("\n\n====================\n");
     printf("🌟 Menú Principal:\n");
@@ -578,8 +698,18 @@ void mostrarMenuPrincipal() {
     printf("Seleccione una opción: ");
 }
 
+/**
+ * Función principal de la interfaz de usuario.
+ *
+ * Se conecta a los FIFOs de comunicación con el proceso `searcher` y permite al usuario:
+ * - Ingresar parámetros de búsqueda (arousal, emoción, artista).
+ * - Enviar la búsqueda al `searcher` a través del pipe.
+ * - Recibir el número de resultados y, si el usuario acepta, mostrarlos.
+ * 
+ * La función termina si el usuario selecciona salir o si ocurre un error de comunicación.
+ */
 void interface() {
-    wait_for_ready_signal();
+    wait_for_ready_signal(); // Esperar hasta que el searcher indique que está listo --> Index cargado
     if (exit_requested) return;
 
     int fd_req, fd_res;
@@ -603,10 +733,10 @@ void interface() {
 
     printf("\n\n\n   >⩊< Bienvenido al buscador de canciones por sentimientos ▶︎ •\n");
 
-    // Variables para almacenar las opciones ingresadas
+    // Opciones de búsqueda ingresadas
     char emotion[MAX_FIELD] = "";
     char artist[MAX_FIELD] = "";
-    int arousal = -1;  // Empezamos con un valor no válido
+    int arousal = -1;
 
     while (!exit_requested) {
         mostrarMenuPrincipal();
@@ -697,7 +827,7 @@ void interface() {
                 ssize_t bytes_read = read(fd_res, &s, sizeof(Song));
                 if (bytes_read == 0) {
                     printf("[interface] El searcher cerró la conexión.\n");
-                    exit_requested = 1;  // Salir del bucle principal
+                    exit_requested = 1;
                     break;
                 }
                 if (bytes_read < sizeof(Song)) {
@@ -727,6 +857,14 @@ void interface() {
     printf("\n¡Hasta pronto! ᡣ • . • 𐭩 ♡\n");
 }
 
+/**
+ * Prepara el entorno de ejecución del programa.
+ *
+ * Elimina cualquier archivo FIFO o bandera existente de ejecuciones anteriores y crea
+ * los FIFOs necesarios para la comunicación entre procesos (`PIPE_REQ` y `PIPE_RES`).
+ * 
+ * Si ocurre un error durante la creación de los FIFOs, se aborta la ejecución.
+ */
 void setup_environment() {
     printf("[main] Limpiando entorno anterior y creando FIFOs...\n");
     
@@ -735,6 +873,7 @@ void setup_environment() {
     unlink(PIPE_RES);
     unlink(READY_FLAG);
     
+    // Crear FIFO para solicitudes
     if (mkfifo(PIPE_REQ, 0666) == -1) {
         if (errno != EEXIST) {
             perror("[main] Error creando PIPE_REQ");
@@ -743,6 +882,7 @@ void setup_environment() {
     }
     printf("[main] FIFO %s creado.\n", PIPE_REQ);
 
+    // Crear FIFO para respuestas
     if (mkfifo(PIPE_RES, 0666) == -1) {
         if (errno != EEXIST) {
             perror("[main] Error creando PIPE_RES");
@@ -753,11 +893,25 @@ void setup_environment() {
     printf("[main] FIFO %s creado.\n", PIPE_RES);
 }
 
-
+/**
+ * Función principal del programa.
+ *
+ * Según el modo especificado (`searcher` o `interface`), ejecuta el proceso correspondiente:
+ *  - searcher: crea el entorno, indexa las canciones y espera consultas.
+ *  - interface: lanza el menú para que el usuario realice búsquedas.
+ *
+ * Uso:
+ *   ./programa searcher <archivo_csv>
+ *   ./programa interface
+ *
+ * @param argc Número de argumentos
+ * @param argv Vector de argumentos (modo y archivo CSV)
+ * @return 0 en caso de éxito, 1 en caso de error
+ */
 int main(int argc, char *argv[]) {
     signal(SIGINT, handle_sigint);
 
-    if (argc < 2) { // <-- CAMBIO: Permitir que la interfaz no necesite el CSV
+    if (argc < 2) {
         fprintf(stderr, "Uso: %s <modo> [archivo_csv]\n", argv[0]);
         fprintf(stderr, "Modos disponibles: searcher | interface\n");
         return 1;
