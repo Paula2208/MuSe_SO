@@ -506,6 +506,7 @@ void create_ready_signal() {
  * - Abre los pipes para recibir solicitudes de búsqueda y enviar resultados.
  * - Procesa las búsquedas hasta que se solicite una interrupción.
  */
+/*
 void searcher(const char *filename) {
     if (access(INDEX_BIN_PATH, F_OK) == 0) {
         printf("[searcher] Archivo binario de índice encontrado. Cargando...\n");
@@ -679,6 +680,160 @@ void searcher(const char *filename) {
     printf("[searcher] Finalizando proceso correctamente.\n");
     printf("\n¡Hasta pronto! ᡣ • . • 𐭩 ♡\n");
 }
+*/
+
+void searcher(const char *filename) {
+    if (access(INDEX_BIN_PATH, F_OK) == 0) {
+        printf("[searcher] Archivo binario de índice encontrado. Cargando...\n");
+        loadIndex(INDEX_BIN_PATH);
+    } else {
+        printf("[searcher] No hay índice guardado. Indexando desde CSV...\n");
+        buildIndex(filename);
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            saveIndex(INDEX_BIN_PATH);
+            printf("[searcher] Proceso hijo terminó de guardar el índice.\n");
+            _exit(0);
+        } else if (pid < 0) {
+            perror("[searcher] Error al crear proceso para guardar el índice");
+        } else {
+            printf("[searcher] Proceso hijo creado para guardar índice (PID: %d)\n", pid);
+        }
+    }
+
+    create_ready_signal();
+
+    int fd_req = open(PIPE_REQ, O_RDONLY);
+    if (fd_req == -1) {
+        perror("[searcher] ERROR abriendo PIPE_REQ");
+        exit(1);
+    }
+
+    int fd_res = open(PIPE_RES, O_WRONLY);
+    if (fd_res == -1) {
+        perror("[searcher] ERROR abriendo PIPE_RES");
+        close(fd_req);
+        exit(1);
+    }
+
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Error abriendo archivo para búsqueda");
+        close(fd_req);
+        close(fd_res);
+        exit(1);
+    }
+
+    char keyword[MAX_KEY];
+    while (!exit_requested) {
+        printf("\n\n[searcher] Esperando una nueva búsqueda...\n");
+        ssize_t bytes_read = read(fd_req, keyword, MAX_KEY);
+        if (bytes_read <= 0) {
+            if (bytes_read == 0) {
+                printf("[searcher] Conexión cerrada por la interfaz.\n");
+            } else if (errno != EINTR) {
+                perror("[searcher] Error leyendo del pipe");
+            }
+            break;
+        }
+
+        keyword[bytes_read] = '\0';
+        if (strlen(keyword) == 0) continue;
+
+        printf("[searcher] Buscando canciones con: '%s' Hash: %d\n", keyword, hash(keyword));
+
+        struct timespec start, end;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+
+        unsigned int idx = hash(keyword);
+        HashNode *node = hashTable[idx].head;
+
+        int total_found = 0;
+
+        // Primera pasada: contar resultados
+        while (node && !exit_requested) {
+            Song s = readSongAt(file, node->position);
+            int match = 0;
+            char temp_key[MAX_KEY];
+            sanitize_input(s.artist);
+
+            for (int i = 0; i < MAX_SEEDS && strlen(s.seeds[i]) > 0; i++) {
+                char emotion_clean[MAX_FIELD];
+                snprintf(emotion_clean, sizeof(emotion_clean), "%s", s.seeds[i]);
+                sanitize_input(emotion_clean);
+                snprintf(temp_key, sizeof(temp_key), "%d_%s_%s", (int)s.arousal_tags, emotion_clean, s.artist);
+                if (strcmp(temp_key, keyword) == 0) {
+                    match = 1;
+                    break;
+                }
+            }
+
+            if (match) total_found++;
+            node = node->next;
+        }
+
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        double time_spent = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+
+        printf("[searcher] Búsqueda completada: %d canciones encontradas en %.3f segundos\n", 
+               total_found, time_spent);
+
+        if (write(fd_res, &total_found, sizeof(int)) != sizeof(int)) {
+            if (errno != EPIPE) perror("Error al enviar total de canciones");
+            continue;
+        }
+
+        if (total_found > 0) {
+            char respuesta_usuario;
+            ssize_t r = read(fd_req, &respuesta_usuario, 1);
+            if (r <= 0 || respuesta_usuario != 'y') continue;
+
+            // Segunda pasada: enviar resultados
+            node = hashTable[idx].head;
+            while (node && !exit_requested) {
+                Song s = readSongAt(file, node->position);
+                int match = 0;
+                char temp_key[MAX_KEY];
+                sanitize_input(s.artist);
+
+                for (int i = 0; i < MAX_SEEDS && strlen(s.seeds[i]) > 0; i++) {
+                    char emotion_clean[MAX_FIELD];
+                    snprintf(emotion_clean, sizeof(emotion_clean), "%s", s.seeds[i]);
+                    sanitize_input(emotion_clean);
+                    snprintf(temp_key, sizeof(temp_key), "%d_%s_%s", (int)s.arousal_tags, emotion_clean, s.artist);
+                    if (strcmp(temp_key, keyword) == 0) {
+                        match = 1;
+                        break;
+                    }
+                }
+
+                if (match) {
+                    if (write(fd_res, &s, sizeof(Song)) != sizeof(Song)) {
+                        if (errno != EPIPE) perror("Error al escribir canción");
+                        break;
+                    }
+                }
+
+                node = node->next;
+            }
+
+            Song terminator = {0};
+            if (write(fd_res, &terminator, sizeof(Song)) != sizeof(Song)) {
+                if (errno != EPIPE) perror("Error al escribir terminador");
+            }
+        }
+    }
+
+    close(fd_req);
+    close(fd_res);
+    fclose(file);
+    clearHash();
+
+    printf("[searcher] Finalizando proceso correctamente.\n");
+    printf("\n¡Hasta pronto! ᡣ • . • 𐭩 ♡\n");
+}
+
 
 /**
  * Muestra el menú principal de la interfaz de usuario por consola.
