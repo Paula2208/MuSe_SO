@@ -563,7 +563,8 @@ void searcher(const char *filename) {
     fclose(file);
     clearHash();
 
-    printf("[searcher] Finalizando proceso correctamente. ❤️\n");
+    printf("[searcher] Finalizando proceso correctamente.\n");
+    printf("\n¡Hasta pronto! ᡣ • . • 𐭩 ♡\n");
 }
 
 void mostrarMenuPrincipal() {
@@ -617,19 +618,19 @@ void interface() {
         if (op == 9) break;
 
         if (op == 2) {
-            printf("\nIngrese una emoción para buscar: ");
+            printf("\n💬 Ingrese una emoción para buscar ❤️: ");
             if (!fgets(emotion, sizeof(emotion), stdin)) continue;
             emotion[strcspn(emotion, "\n")] = '\0';
             sanitize_input(emotion);
         }
         else if (op == 3) {
-            printf("\nIngrese el nombre del artista: ");
+            printf("\n🎤 Ingrese el nombre del artista 🎤: ");
             if (!fgets(artist, sizeof(artist), stdin)) continue;
             artist[strcspn(artist, "\n")] = '\0';
             sanitize_input(artist);
         }
         else if (op == 1) {
-            printf("\nIngrese la intensidad de la emoción (0 a 100): ");
+            printf("\n🎚️ Ingrese la intensidad de la emoción (0 a 100) 🎚️: ");
             if (!fgets(choice_str, sizeof(choice_str), stdin)) continue;
             arousal = atoi(choice_str);
             if (arousal < 0 || arousal > 100) {
