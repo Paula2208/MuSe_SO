@@ -14,7 +14,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#include "indexador.h"
+#include "./helpers/indexador.h"
 
 #define PIPE_REQ "./output/search_req.pipe"
 #define PIPE_RES "./output/search_res.pipe"

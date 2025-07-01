@@ -157,6 +157,10 @@ void buildIndex(const char *filename) {
     while (fgets(line, sizeof(line), file)) {
         count++;
 
+        if (count % 500000 == 0) {
+            printf("[indexer] Procesadas %ld líneas...\n", count);
+        }
+
         char *tokens[NUM_FIELDS];
         char *p = line;
         for (int i = 0; i < NUM_FIELDS; i++) {

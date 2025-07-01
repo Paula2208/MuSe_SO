@@ -6,14 +6,18 @@ OUTDIR=output
 TARGET=$(OUTDIR)/p1-dataProgram
 CSV=./Data/muse1gb.csv
 
+# Archivos fuente
+SRC_MAIN=p1-dataProgram.c
+SRC_HELPERS=helpers/indexador.c
+
 # Archivos temporales
 PIPES=$(OUTDIR)/search_req.pipe $(OUTDIR)/search_res.pipe
 READY=$(OUTDIR)/searcher.ready
 
 all: $(TARGET)
 
-$(TARGET): p1-dataProgram.c indexador.c | $(OUTDIR)
-	$(CC) $(CFLAGS) -o $(TARGET) p1-dataProgram.c indexador.c
+$(TARGET): $(SRC_MAIN) $(SRC_HELPERS) | $(OUTDIR)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC_MAIN) $(SRC_HELPERS)
 
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
@@ -49,7 +53,7 @@ run-all: all
 	$(MAKE) clean-all
 	@echo "🔁 Ejecutando indexador, searcher e interface..."
 	$(MAKE) run-indexer
-	sleep 2
+	sleep 4
 	$(MAKE) run-searcher
 	sleep 1
 	$(MAKE) run-interface
