@@ -1,10 +1,8 @@
-// indexador.c corregido
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <dirent.h>
-#include <errno.h>
+#include <pthread.h>
 #include <sys/stat.h>
 
 #define MAX_FIELD 128
@@ -13,17 +11,24 @@
 #define INDEX_FOLDER "./output/emotions/"
 #define LINE_BUFFER 4096
 #define NUM_FIELDS 12
+#define CHUNK_SIZE 500000
+#define NUM_THREADS 8
 
-typedef struct PosNode {
+// Declaraciones adelantadas
+typedef struct PosNode PosNode;
+typedef struct ArtistNode ArtistNode;
+
+// Definiciones completas
+struct PosNode {
     long pos;
-    struct PosNode *next;
-} PosNode;
+    PosNode *next;
+};
 
-typedef struct ArtistNode {
+struct ArtistNode {
     char artist[MAX_FIELD];
     PosNode *positions;
-    struct ArtistNode *next;
-} ArtistNode;
+    ArtistNode *next;
+};
 
 typedef struct {
     ArtistNode *buckets[MAX_ARTIST_BUCKETS];
@@ -35,7 +40,31 @@ typedef struct EmotionIndex {
     struct EmotionIndex *next;
 } EmotionIndex;
 
+typedef struct {
+    int id;
+    char **lines;
+    long *positions;
+    long num_lines;
+} ThreadArgs;
+
+typedef struct {
+    long id;
+    char title[MAX_FIELD];
+    char artist[MAX_FIELD];
+    char url[MAX_FIELD];
+    char emotions[MAX_SEEDS][MAX_FIELD];
+    int num_seeds;
+    float valence;
+    float arousal;
+    float dominance;
+    char genre[MAX_FIELD];
+} Song;
+
+// Global index
 EmotionIndex *emotion_index_head = NULL;
+pthread_mutex_t index_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// ------------- FUNCIONES AUXILIARES -------------
 
 void sanitize_input(char *str) {
     char *src = str, *dst = str;
@@ -55,8 +84,10 @@ unsigned int hash_artist(const char *key) {
 }
 
 EmotionIndex *get_or_create_emotion(const char *emotion) {
-    for (EmotionIndex *curr = emotion_index_head; curr; curr = curr->next)
-        if (strcmp(curr->emotion, emotion) == 0) return curr;
+    EmotionIndex *curr;
+    for (curr = emotion_index_head; curr; curr = curr->next)
+        if (strcmp(curr->emotion, emotion) == 0)
+            return curr;
 
     EmotionIndex *new = malloc(sizeof(EmotionIndex));
     strncpy(new->emotion, emotion, MAX_FIELD - 1);
@@ -70,6 +101,7 @@ EmotionIndex *get_or_create_emotion(const char *emotion) {
 void add_position(const char *emotion, int arousal, const char *artist, long pos) {
     if (arousal < 0 || arousal > 100) return;
 
+    pthread_mutex_lock(&index_mutex);
     EmotionIndex *eidx = get_or_create_emotion(emotion);
     ArousalIndex *ai = &eidx->arousals[arousal];
     unsigned int idx = hash_artist(artist);
@@ -91,6 +123,7 @@ void add_position(const char *emotion, int arousal, const char *artist, long pos
     p->pos = pos;
     p->next = curr->positions;
     curr->positions = p;
+    pthread_mutex_unlock(&index_mutex);
 }
 
 void save_index_to_disk() {
@@ -133,44 +166,27 @@ void save_index_to_disk() {
         }
 
         fclose(f);
-        printf("[indexador] Índice guardado para emoción '%s'\n", curr->emotion);
+        
     }
+    printf("[indexador] Índice guardado.\n");
 }
 
-void buildIndex(const char *filename) {
-    FILE *file = fopen(filename, "r");
-    if (!file) {
-        perror("Error abriendo CSV");
-        exit(1);
-    }
-
-    char line[LINE_BUFFER];
-    if (!fgets(line, sizeof(line), file)) {
-        fprintf(stderr, "Error leyendo línea (posiblemente EOF inesperado)\n");
-        fclose(file);
-        return;
-    }
-
-    long pos = ftell(file);
-    long count = 0;
-
-    while (fgets(line, sizeof(line), file)) {
-        count++;
-
-        if (count % 500000 == 0) {
-            printf("[indexer] Procesadas %ld líneas...\n", count);
-        }
+void *process_lines(void *arg) {
+    ThreadArgs *args = (ThreadArgs *)arg;
+    for (long i = 0; i < args->num_lines; i++) {
+        char *line = args->lines[i];
+        long pos = args->positions[i];
 
         char *tokens[NUM_FIELDS];
         char *p = line;
-        for (int i = 0; i < NUM_FIELDS; i++) {
+        for (int j = 0; j < NUM_FIELDS; j++) {
             char *start = p;
             while (*p && *p != ',') {
                 if (*p == '[') while (*p && *p != ']') p++;
                 if (*p) p++;
             }
             if (*p) *p++ = '\0';
-            tokens[i] = start;
+            tokens[j] = start;
         }
 
         char artist[MAX_FIELD] = "";
@@ -201,14 +217,101 @@ void buildIndex(const char *filename) {
                     int arousal = (int) atof(tokens[6]);
                     add_position(emotion_clean, arousal, artist, pos);
                 }
+
                 q = end + 1;
             }
         }
-
-        pos = ftell(file);
     }
 
+    return NULL;
+}
+
+// ------------- INDEXADOR PRINCIPAL -------------
+
+void buildIndex(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Error abriendo CSV");
+        exit(1);
+    }
+
+    char header[LINE_BUFFER];
+    if(!fgets(header, sizeof(header), file)){
+        perror("Error leyendo el header del CSV");
+        fclose(file);
+        exit(1);
+    } // Skip header
+
+    char **lines = malloc(sizeof(char *) * CHUNK_SIZE);
+    long *positions = malloc(sizeof(long) * CHUNK_SIZE);
+    long total = 0;
+
+    long chunk_id = 0;
+    long count = 0;
+    char line[LINE_BUFFER];
+
+    while (fgets(line, sizeof(line), file)) {
+        lines[count] = strdup(line);
+        positions[count] = ftell(file);
+        count++;
+        total++;
+
+        if (count >= CHUNK_SIZE) {
+            printf("[indexador] Procesando chunk %ld...\n", ++chunk_id);
+
+            pthread_t threads[NUM_THREADS];
+            ThreadArgs args[NUM_THREADS];
+            long chunk_per_thread = count / NUM_THREADS;
+
+            for (int i = 0; i < NUM_THREADS; i++) {
+                args[i].id = i;
+                args[i].lines = &lines[i * chunk_per_thread];
+                args[i].positions = &positions[i * chunk_per_thread];
+                args[i].num_lines = (i == NUM_THREADS - 1) ? (count - i * chunk_per_thread) : chunk_per_thread;
+            }
+
+            for (int i = 0; i < NUM_THREADS; i++) {
+                pthread_create(&threads[i], NULL, process_lines, &args[i]);
+            }
+
+            for (int i = 0; i < NUM_THREADS; i++)
+                pthread_join(threads[i], NULL);
+
+            for (int i = 0; i < count; i++) free(lines[i]);
+            count = 0;
+
+            save_index_to_disk();
+        }
+    }
+
+    // Procesar últimas líneas si quedaron
+    if (count > 0) {
+        printf("[indexador] Procesando último chunk...\n");
+        pthread_t threads[NUM_THREADS];
+        ThreadArgs args[NUM_THREADS];
+        long chunk_per_thread = count / NUM_THREADS;
+
+        for (int i = 0; i < NUM_THREADS; i++) {
+            args[i].id = i;
+            args[i].lines = &lines[i * chunk_per_thread];
+            args[i].positions = &positions[i * chunk_per_thread];
+            args[i].num_lines = (i == NUM_THREADS - 1) ? (count - i * chunk_per_thread) : chunk_per_thread;
+        }
+
+        for (int i = 0; i < NUM_THREADS; i++) {
+           pthread_create(&threads[i], NULL, process_lines, &args[i]);
+        }
+
+        for (int i = 0; i < NUM_THREADS; i++)
+            pthread_join(threads[i], NULL);
+
+        for (int i = 0; i < count; i++) free(lines[i]);
+    }
+
+    free(lines);
+    free(positions);
     fclose(file);
-    printf("[indexador] Total de canciones procesadas: %ld\n", count);
+
+    printf("[indexador] Total de canciones procesadas: %ld\n", total);
     save_index_to_disk();
 }
