@@ -12,11 +12,15 @@ READY=$(OUTDIR)/searcher.ready
 
 all: $(TARGET)
 
-$(TARGET): p1-dataProgram.c | $(OUTDIR)
-	$(CC) $(CFLAGS) -o $(TARGET) p1-dataProgram.c
+$(TARGET): p1-dataProgram.c indexador.c | $(OUTDIR)
+	$(CC) $(CFLAGS) -o $(TARGET) p1-dataProgram.c indexador.c
 
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
+
+run-indexer: all
+	@echo -e "\n\n📦 Ejecutando el indexador en nueva terminal..."
+	gnome-terminal -- bash -c "./$(TARGET) indexer $(CSV); exec bash"
 
 run-searcher: all
 	@echo -e "\n\n🧠 Ejecutando el proceso de búsqueda en nueva terminal..."
@@ -26,6 +30,10 @@ run-interface: all
 	@echo -e "\n\n🎧 Ejecutando la interfaz interactiva en nueva terminal..."
 	gnome-terminal -- bash -c "./$(TARGET) interface $(CSV); exec bash"
 
+clean-all:
+	@echo -e "\n\n🧹 Limpiando archivos indexados, compilados y temporales..."
+	rm -rf $(OUTDIR) *.o
+
 clean:
 	@echo -e "\n\n🧹 Limpiando archivos compilados y temporales..."
 	rm -f $(TARGET) *.o $(PIPES) $(READY)
@@ -33,6 +41,15 @@ clean:
 run-both: all
 	$(MAKE) clean
 	@echo "🚀 Ejecutando ambos procesos..."
+	$(MAKE) run-searcher
+	sleep 1
+	$(MAKE) run-interface
+
+run-all: all
+	$(MAKE) clean-all
+	@echo "🔁 Ejecutando indexador, searcher e interface..."
+	$(MAKE) run-indexer
+	sleep 2
 	$(MAKE) run-searcher
 	sleep 1
 	$(MAKE) run-interface

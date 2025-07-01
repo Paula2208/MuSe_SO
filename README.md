@@ -8,106 +8,94 @@ MuSe es un sistema de búsqueda de canciones basado en emociones, intensidad emo
 
 El sistema trabaja con el dataset:
 [**MuSe: The Musical Sentiment Dataset**](https://www.kaggle.com/datasets/cakiki/muse-the-musical-sentiment-dataset)
+
 Este dataset contiene información de canciones como: URL, título, artista, emociones asociadas, valencia, intensidad, dominancia y género.
 
-* valencia (valence): "la gratificación de un estímulo"
-* intensidad (arousal): "la intensidad de la emoción provocada por un estímulo"
-* Dominio (Dominance): "el grado de control ejercido por un estímulo"
-
+- **valencia (valence)**: "la gratificación de un estímulo"
+- **intensidad (arousal)**: "la intensidad de la emoción provocada por un estímulo"
+- **dominancia (dominance)**: "el grado de control ejercido por un estímulo"
 
 ---
 
 ## 🧠 Criterios de Búsqueda: ¿Por qué intensidad → emoción → artista?
 
-El sistema está diseñado para buscar canciones utilizando una clave compuesta en el orden:
+El sistema utiliza una clave de búsqueda compuesta en el siguiente orden:
 
-```
-<arousal>_<emotion>_<artist>
-```
+emotion → arousal → artist
 
-Este esquema de indexación no es arbitrario. Está basado en consideraciones prácticas y conceptuales sobre cómo se estructura el dataset y cómo los usuarios suelen buscar música emocionalmente relevante:
-
-1. **🎭 Emoción como base del sistema**
-   Las emociones son el eje central del dataset MuSe, y constituyen el aspecto más interesante para el usuario. Son el punto de partida natural para organizar las canciones y realizar búsquedas afectivas.
-
-2. **📈 Arousal como filtro de relevancia**
-   La intensidad emocional (arousal) permite determinar qué tan presente o dominante es una emoción en una canción. Incluirla primero en la clave permite filtrar rápidamente canciones donde esa emoción sea suficientemente significativa para ser relevante.
-
-3. **🎤 Artista como anclaje emocional**
-   Muchas personas tienen una conexión emocional más fuerte con ciertos artistas. Incluir el nombre del artista en la clave ayuda a personalizar la búsqueda, permitiendo encontrar canciones de un artista específico que también evocan una emoción particular con suficiente intensidad.
-
-Este orden de criterios permite una indexación eficiente y búsquedas más precisas, alineadas con cómo las personas exploran música emocionalmente significativa.
+Esto permite una búsqueda rápida y eficaz a partir del nivel de intensidad emocional (arousal), filtrando por emoción y artista para obtener resultados personalizados y emocionalmente relevantes.
 
 ---
 
 ## 🧪 Ejemplo de Uso: Búsqueda Interactiva
 
-A continuación se muestra un ejemplo de cómo funciona la búsqueda de canciones desde la consola una vez que el sistema está en ejecución:
+```bash
 
-```
 🌟 Menú Principal:
-1. Ingresar la intensidad de la emoción (0 a 100)
-2. Ingresar emoción
-3. Ingresar el artista
+
+1. Ingresar emoción ❤️
+2. Ingresar la intensidad de la emoción (0 a 100) 🎚️
+3. Ingresar el artista 🎤
 4. Realizar la búsqueda
 9. Salir
+
 Seleccione una opción: 1
-
-🎚️ Ingrese la intensidad de la emoción (0 a 100) 🎚️: 80
-
-Seleccione una opción: 2
-
 💬 Ingrese una emoción para buscar ❤️: aggressive
 
-Seleccione una opción: 3
+Seleccione una opción: 2
+🎚️ Ingrese la intensidad de la emoción (0 a 100) 🎚️: 80
 
+Seleccione una opción: 3
 🎤 Ingrese el nombre del artista 🎤: eminem
 
 Seleccione una opción: 4
 
-🔍 Buscando: '80_aggressive_eminem'...
+🎵 Se encontraron 2 canciones. ¿Desea mostrarlas? (s/n): s
 
-🎵 Se encontraron 3 canciones. ¿Desea mostrarlas? (s/n): s
+🎶 === Canción encontrada ===
+🎵 Track: Till I Collapse
+🎤 Artista: Eminem
+💼 Género: Rap
+💬 Emociones: aggressive
+🎚️ Valence: 4.55 | Arousal: 5.27 | Dominance: 5.69
+🔗 URL: [https://www.last.fm/music/eminem/\_/till+I+collapse](https://www.last.fm/music/eminem/_/till+I+collapse)
 
-🎶 Resultados encontrados:
--------------------------------------
-🎵 Título: Lose Yourself
-👤 Artista: Eminem
-🔗 URL: https://www.last.fm/music/Eminem/_/Lose+Yourself
-❤️ Emociones: 'aggressive', 'focused'
-🎧 Género: Rap
+🎶 === Canción encontrada ===
+🎵 Track: The Sauce
+🎤 Artista: Eminem
+💼 Género: Rap
+💬 Emociones: aggressive
+🎚️ Valence: 3.00 | Arousal: 5.84 | Dominance: 4.71
+🔗 URL: [https://www.last.fm/music/eminem/\_/the+sauce](https://www.last.fm/music/eminem/_/the+sauce)
 
-...
-
-✅ Total de canciones encontradas: 3
-
-🔁 Volviendo al menú principal...
-```
-
-Este flujo permite al usuario refinar su búsqueda paso a paso, asegurando una interacción sencilla y significativa.
+````
 
 ---
 
 ## ❤️ ¿Cómo funciona MuSe?
 
-MuSe está compuesto por **dos procesos independientes**:
+MuSe está compuesto por **tres componentes** principales:
 
-1. **Searcher** (`searcher`):
-
-   * Indexa el archivo CSV usando una **tabla hash** con claves del tipo:
-
+1. **Indexer** (`indexer`):
+   - Procesa el archivo CSV y genera un archivo binario por emoción:  
      ```
-     <arousal_entero>_<emoción>_<artista>
+     ./output/index_<emoción>.bin
      ```
-   * Responde a las búsquedas enviadas por el proceso interfaz y retorna resultados.
-   * Guarda el índice en un archivo binario para evitar reindexación futura.
+   - Cada archivo contiene un arreglo de 101 niveles de arousal (0 a 100).
+   - En cada arousal hay una tabla hash de artistas y sus posiciones en el CSV.
+   - Cada canción se indexa múltiples veces, una por cada emoción que contiene.
 
-2. **Interface** (`interface`):
+2. **Searcher** (`searcher`):
+   - Espera peticiones de búsqueda desde la `interface`.
+   - Carga el archivo binario correspondiente a la emoción buscada.
+   - Recupera las canciones filtrando por arousal y artista.
+   - Devuelve resultados a través de `PIPE_RES`.
 
-   * Interactúa con el usuario mediante un menú.
-   * Permite ingresar los criterios de búsqueda.
-   * Se comunica con el `searcher` por medio de **FIFOs** (`PIPE_REQ` y `PIPE_RES`).
-   * Muestra los resultados encontrados si el usuario lo desea.
+3. **Interface** (`interface`):
+   - Menú interactivo para el usuario.
+   - Permite ingresar: emoción, arousal y artista.
+   - Envía la solicitud al `searcher` mediante `PIPE_REQ`.
+   - Muestra los resultados si el usuario lo desea.
 
 ---
 
@@ -115,122 +103,121 @@ MuSe está compuesto por **dos procesos independientes**:
 
 ### 1. Compilación
 
-Usando el bash creado:
+Usa el script:
 
 ```bash
 ./run.sh
-```
+````
 
-O puedes usar directamente los comandos del Makefile:
+O compila manualmente con:
 
 ```bash
 make
-make run-both
 ```
 
-> Si se necesita reindexar el archivo, basta con borrar el binario que se genera en la carpeta /output y correr nuevamente el proyecto, este indexará automáticamente. Puedes utilizar el siguiente comando para hacerlo.
+### 2. Indexación del Dataset
+
+Antes de usar el sistema, debes indexar el archivo CSV:
 
 ```bash
-cd output/ && rm -r index.bin && cd ..
+./output/searcher indexer data/muse_dataset.csv
 ```
 
-### 2. Ejecución
+Esto creará múltiples archivos binarios en `./output/`:
 
-#### Paso 1: Ejecutar el `searcher`
+```
+index_aggressive.bin
+index_happy.bin
+...
+```
 
-Este proceso debe iniciarse primero.
+### 3. Ejecución de los procesos
+
+**Searcher (en una terminal):**
 
 ```bash
 ./output/searcher searcher data/muse_dataset.csv
 ```
 
-* Si existe un índice guardado en `output/index.bin`, lo cargará directamente.
-* Si no, indexará el archivo CSV y guardará el índice automáticamente en segundo plano.
-
-#### Paso 2: Ejecutar la `interface` (en otro terminal)
+**Interface (en otra terminal):**
 
 ```bash
 ./output/interface interface
 ```
 
-La interfaz te permitirá:
-
-* Ingresar la intensidad emocional (arousal) \[0–100]
-* Ingresar una emoción (ej. `happy`, `sad`)
-* Ingresar el artista (ej. `taylor swift`)
-* Realizar una búsqueda con los criterios anteriores
+> El `searcher` cargará automáticamente el archivo binario correcto según la emoción buscada.
 
 ---
 
 ## 📦 Estructura de Archivos
 
 ```
-MuSe/
+MuSe_SO/
 ├── data/
 │   └── muse_dataset.csv            # Dataset original
 ├── output/
-│   ├── index.bin                   # Archivo binario generado con el índice hash
-│   ├── searcher                    # Ejecutable del indexador
+│   ├── emotions
+|   |     └── index_<emoción>.bin   # Índices binarios por emoción
+│   ├── search_req.pipe             # Named pipe para requests
+│   ├── search_res.pipe             # Named pipe para responses
+│   ├── searcher.ready              # Bandera para avisar al interface que el searcher está disponible
+│   ├── searcher                    # Ejecutable del indexador y buscador
 │   └── interface                   # Ejecutable de la interfaz de usuario
-├── main.c                          # Código fuente principal
+├── p1-dataProgram.c                # Código fuente principal
+├── indexador.h / indexador.c       # Módulo de estructuras e indexación
+├── Makefile                        # Makefile para compilación y ejecición de procesos
 ├── README.md                       # Este archivo
-└── run.sh                          # Script de ejecución opcional
+└── run.sh                          # Script de ejecución
 ```
 
 ---
 
-## 📁 Organización de Archivos y Configuración del Makefile
+## 📁 Organización y Makefile
 
-Para que el sistema funcione correctamente, debes asegurarte de lo siguiente:
+Asegúrate de:
 
-1. **Ubicación del CSV**:
-   El archivo CSV del dataset debe estar dentro del directorio `Data/`, por ejemplo:
+1. Que tu CSV esté en la carpeta `data/`.
 
-   ```
-   Data/muse1gb.csv
-   ```
+2. Que el nombre del CSV en el `Makefile` coincida con el tuyo:
 
-2. **Nombre del archivo CSV en el Makefile**:
-   El nombre del CSV utilizado por defecto se define en el `Makefile` mediante la variable:
+```make
+CSV=./data/muse_dataset.csv
+```
+3. Puedes usar los comandos del Makefile por separado
 
-   ```make
-   CSV=./Data/muse1gb.csv
-   ```
+```bash
+make
+make run-searcher    # Ejecuta solo el searcher
+make run-interface   # Ejecuta solo la interfaz
+make run-both        # Ejecuta ambos en terminales separadas (sin indexación)
+make run-all         # Ejecuta indexador, searcher e interfaz en terminales separadas
+```
+4. Puedes usar los comandos automáticos:
 
-   Si usas otro archivo (por ejemplo `muse_dataset.csv`), actualiza la línea correspondiente en el Makefile:
-
-   ```make
-   CSV=./Data/muse_dataset.csv
-   ```
-
-3. **Ejecución con doble terminal**:
-   El Makefile tiene objetivos que abren automáticamente dos terminales con los procesos necesarios:
-
-   * `make run-searcher` — lanza el proceso de indexado (`searcher`)
-   * `make run-interface` — lanza la interfaz (`interface`)
-   * `make run-both` — limpia y ejecuta ambos en paralelo
-
-   Asegúrate de tener GNOME Terminal instalado, o ajusta `gnome-terminal` en el Makefile si usas otro emulador (como `xfce4-terminal`, `konsole`, etc.).
-
-> NOTA: No subimos el dataset ampliado al github porque es muy pesado, igual se puede usar con el dataset original de kaggle.
+```bash
+./run.sh              # Ejecuta searcher e interfaz en terminales separadas (sin indexación)
+./indexing.sh         # Ejecuta indexador, searcher e interfaz en terminales separadas
+./info.sh             # Ejecuta la información del proceso en memoria
+```
 
 ---
 
 ## 🧩 Detalles Técnicos
 
-* **Hashing**: Las claves se generan combinando `arousal`, `emoción`, y `artista` después de aplicar una sanitización alfanumérica.
-* **Indexación**: Cada canción puede indexarse múltiples veces si tiene múltiples emociones.
-* **Persistencia**: El índice se guarda en `index.bin` para evitar reindexación en futuras ejecuciones.
-* **Comunicación entre procesos**: Uso de `mkfifo`, `open`, `read`, `write` y estructuras tipo `Song` para enviar resultados.
-* **Optimización**: Las búsquedas se hacen solo sobre los nodos relevantes gracias a la clave hash, evitando escanear todo el dataset.
+* **Claves de hash**: `<artist>`, con sanitización.
+* **Indexación por emoción**: cada emoción tiene su propio archivo.
+* **División por intensidad**: se crea un array de 101 posibles arousals por emoción.
+* **Persistencia**: los índices binarios evitan reindexar cada vez.
+* **Búsqueda eficiente**: solo se accede al arousal y artista solicitados.
+* **Múltiples entradas**: si una canción tiene varias emociones, se indexa múltiples veces.
 
 ---
 
 ## 📌 Requisitos
 
-* Sistema operativo Linux/Unix (por uso de `mkfifo`, `fork`, señales).
-* Compilador C (GCC recomendado).
-* Archivo CSV del dataset ubicado en `data/`.
+* Linux/Unix (uso de `mkfifo`, señales, etc.).
+* Compilador C (GCC).
+* Dataset `.csv` ubicado en `data/`.
 
 ---
 
@@ -241,8 +228,6 @@ Para que el sistema funcione correctamente, debes asegurarte de lo siguiente:
 * Juan Manuel Cristancho
 
 Desarrollado como parte de la práctica 1 de Sistemas Operativos.
+2025-1s | Universidad Nacional de Colombia
 
-2025-1s | Universidad Nacional de Colombia.
-
-¡Gracias por usar MuSe! 🎧✨
-Donde la música y tus emociones se encuentran.
+🎧 ¡Gracias por usar MuSe!
