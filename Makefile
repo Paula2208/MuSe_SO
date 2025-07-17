@@ -1,5 +1,5 @@
 # Makefile para la Práctica 2 de Sistemas Operativos (Sockets)
-# Adaptado para Ubuntu con gnome-terminal
+# Adaptado para Ubuntu con gnome-terminal (local)
 
 # --- Configuración del Compilador y Archivos ---
 CC=gcc
@@ -15,7 +15,7 @@ CSV_FILE=./Data/muse1gb.csv # Asegúrate de que esta ruta sea correcta
 # Asumimos que indexador.c contiene la lógica de indexación
 # y que server.c/client.c tienen su propia lógica.
 SRC_INDEXER=helpers/indexador.c
-SRC_SERVER=server.c
+SRC_SERVER=server_local.c
 SRC_CLIENT=client.c
 
 # --- Nombres de los Ejecutables ---
@@ -52,10 +52,10 @@ run-indexer: $(TARGET_INDEXER)
 	@echo "Este proceso puede tardar. La terminal se cerrará al finalizar."
 	gnome-terminal -- bash -c "./$(TARGET_INDEXER) $(CSV_FILE); echo '✅ Indexación completada.'; read -p 'Presiona Enter para cerrar...' "
 
-# Ejecuta el servidor en una nueva terminal - Adaptado Render Cloud
+# Ejecuta el servidor en una nueva terminal
 run-server: $(TARGET_SERVER)
 	@echo "🧠 Ejecutando el Servidor (Searcher) en una nueva terminal..."
-	./$(TARGET_SERVER) $(CSV_FILE)
+	gnome-terminal -- bash -c "./$(TARGET_SERVER) $(CSV_FILE); exec bash"
 
 # Ejecuta el cliente en una nueva terminal
 run-client: $(TARGET_CLIENT)

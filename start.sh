@@ -1,4 +1,4 @@
 #!/bin/bash
 
 make
-make run-server
+./output/server /app/Data/muse1gb.csv
