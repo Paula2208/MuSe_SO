@@ -242,6 +242,56 @@ void printSong(Song s) {
     printf("🔗 URL: %s\n", s.lastfm_url);
 }
 
+void debugBusqueda(int arousal, const char* emotion, const char* artist) {
+    printf("\n[DEBUG] ========= BÚSQUEDA ===========\n");
+    printf("[DEBUG] Arousal recibido: %d\n", arousal);
+    printf("[DEBUG] Emotion recibida: %s\n", emotion);
+    printf("[DEBUG] Artista recibido: %s\n", artist);
+
+    if (!emotion_index_head) {
+        printf("[DEBUG] emotion_index_head es NULL\n");
+        return;
+    }
+
+    EmotionIndex* eidx = emotion_index_head;
+
+    if (arousal < 0 || arousal > 100) {
+        printf("[DEBUG] Arousal fuera de rango\n");
+        return;
+    }
+
+    ArousalIndex* ai = &eidx->arousals[arousal];
+    if (!ai) {
+        printf("[DEBUG] No se encontró ArousalIndex para %d\n", arousal);
+        return;
+    }
+
+    unsigned int h = hash_artist(artist);
+    ArtistNode* an = ai->buckets[h];
+
+    printf("[DEBUG] Explorando bucket hash %u\n", h);
+    while (an) {
+        printf("  [DEBUG] Nodo con artista: %s\n", an->artist);
+        if (strcmp(an->artist, artist) == 0) break;
+        an = an->next;
+    }
+
+    if (!an) {
+        printf("[DEBUG] Artista '%s' NO encontrado en bucket %u\n", artist, h);
+    } else {
+        printf("[DEBUG] Artista '%s' encontrado.\n", artist);
+        printf("[DEBUG] Posiciones:\n");
+        for (PosNode* pn = an->positions; pn; pn = pn->next) {
+            printf("  - Posición en archivo: %ld\n", pn->pos);
+        }
+    }
+
+    printf("[DEBUG] Hash para '%s' = %u\n", artist, h);
+
+
+    printf("[DEBUG] ========= FIN BÚSQUEDA =========\n\n");
+}
+
 void searcher(const char *csv_path) {
     signal(SIGINT, handle_sigint);
     create_ready_signal();
@@ -306,6 +356,7 @@ void searcher(const char *csv_path) {
             prev_emotion[MAX_FIELD - 1] = '\0';
 
         }
+        // debugBusqueda(arousal, emotion, artist);
 
         // Buscar directamente usando arousal y artista
         EmotionIndex *eidx = emotion_index_head;
@@ -321,6 +372,7 @@ void searcher(const char *csv_path) {
             continue;
         }
 
+        
         ArousalIndex *ai = &eidx->arousals[arousal];
         unsigned int h = hash_artist(artist);
         ArtistNode *an = ai->buckets[h];

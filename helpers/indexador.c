@@ -250,11 +250,15 @@ void buildIndex(const char *filename) {
     long count = 0;
     char line[LINE_BUFFER];
 
-    while (fgets(line, sizeof(line), file)) {
+    while (1) {
+        long pos = ftell(file);
+        if (!fgets(line, sizeof(line), file)) break;
+
         lines[count] = strdup(line);
-        positions[count] = ftell(file);
+        positions[count] = pos;
         count++;
         total++;
+
 
         if (count >= CHUNK_SIZE) {
             printf("[indexador] Procesando chunk %ld...\n", ++chunk_id);
