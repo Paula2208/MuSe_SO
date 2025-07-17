@@ -1,6 +1,16 @@
 # 🎵 MuSe: Emociones en tus Canciones
 
-MuSe es un sistema de búsqueda de canciones basado en emociones, intensidad emocional (arousal) y artista. Está diseñado en C utilizando estructuras eficientes como **tablas hash** y comunicación entre procesos mediante **pipes con nombre**. El sistema permite indexar y consultar un dataset extenso de canciones (\~4GB), ofreciendo resultados personalizados y filtrados por criterios afectivos.
+MuSe es un sistema de búsqueda de canciones basado en emociones, intensidad emocional (arousal) y artista. Está diseñado en C utilizando estructuras eficientes como **tablas hash** y comunicación entre procesos (máquinas) mediante **sockets**. El sistema permite indexar y consultar un dataset extenso de canciones (\~2GB a \~4GB), ofreciendo resultados personalizados y filtrados por criterios afectivos.
+
+---
+
+## 📡 Nueva Arquitectura: Cliente–Servidor con Sockets
+
+El sistema se ha actualizado para usar **Sockets TCP/IP** entre los procesos:
+
+- El **servidor** (`server`) escucha en un puerto fijo (`3550`) y responde a búsquedas desde clientes.
+- El **cliente** (`client`) se conecta por red y permite búsquedas interactivas desde una terminal.
+- Esto permite ejecución distribuida: puedes ejecutar el cliente en tu PC y el servidor en la nube.
 
 ---
 
@@ -68,7 +78,7 @@ Seleccione una opción: 4
 🎚️ Valence: 3.00 | Arousal: 5.84 | Dominance: 4.71
 🔗 URL: [https://www.last.fm/music/eminem/\_/the+sauce](https://www.last.fm/music/eminem/_/the+sauce)
 
-````
+```
 
 ---
 
@@ -85,35 +95,21 @@ MuSe está compuesto por **tres componentes** principales:
    - En cada arousal hay una tabla hash de artistas y sus posiciones en el CSV.
    - Cada canción se indexa múltiples veces, una por cada emoción que contiene.
 
-2. **Searcher** (`searcher`):
-   - Espera peticiones de búsqueda desde la `interface`.
+2. **Server** (`searcher`):
+   - Escucha peticiones de bśuqueda de clientes `interface` vía socket TCP (puerto 3550).
    - Carga el archivo binario correspondiente a la emoción buscada.
    - Recupera las canciones filtrando por arousal y artista.
-   - Devuelve resultados a través de `PIPE_RES`.
+   - Devuelve resultados a través de `sockets`.
+   - (Antiguo searcher en p1-dataProgram.c)
 
-3. **Interface** (`interface`):
+3. **Client** (`interface`):
    - Menú interactivo para el usuario.
    - Permite ingresar: emoción, arousal y artista.
-   - Envía la solicitud al `searcher` mediante `PIPE_REQ`.
+   - Envía la solicitud al `searcher` en cloud mediante `sockets`.
    - Muestra los resultados si el usuario lo desea.
+   - (Antiguo interface en p1-dataProgram.c)
 
 ---
-
-## 🚀 Ejecución del Proyecto
-
-### 1. Compilación
-
-Usa el script:
-
-```bash
-./run.sh
-````
-
-O compila manualmente con:
-
-```bash
-make
-```
 
 ### 2. Indexación del Dataset
 
@@ -133,20 +129,27 @@ index_happy.bin
 
 ### 3. Ejecución de los procesos
 
-**Searcher (en una terminal):**
+**Searcher:**
+
+Este puede ser accedido mediante el pierto de la instancia de la máquina virtual en Google Cloud. Ya está activo, no se necesita hacer más.
 
 ```bash
-./output/searcher searcher data/muse_dataset.csv
-```
+# Asegurarse de que exista misocket-server
 
-**Interface (en otra terminal):**
+gcloud compute instances list
+```
 
 ```bash
-./output/interface interface
+# Para crear la instancia o actualizarla
+
+./deploy.sh
 ```
 
-> El `searcher` cargará automáticamente el archivo binario correcto según la emoción buscada.
+**Interface (cliente en terminal):**
 
+```bash
+./client.sh
+```
 ---
 
 ## 📦 Estructura de Archivos
@@ -154,50 +157,22 @@ index_happy.bin
 ```
 MuSe_SO/
 ├── data/
-│   └── muse_dataset.csv            # Dataset original
+│   └── muse1gb.csv                 # Dataset original
+├── helpers/
+│   └── indexador.h / indexador.c   # Módulo de estructuras e indexación
 ├── output/
 │   ├── emotions
 |   |     └── index_<emoción>.bin   # Índices binarios por emoción
-│   ├── search_req.pipe             # Named pipe para requests
-│   ├── search_res.pipe             # Named pipe para responses
-│   ├── searcher.ready              # Bandera para avisar al interface que el searcher está disponible
-│   ├── searcher                    # Ejecutable del indexador y buscador
-│   └── interface                   # Ejecutable de la interfaz de usuario
-├── p1-dataProgram.c                # Código fuente principal
-├── indexador.h / indexador.c       # Módulo de estructuras e indexación
-├── Makefile                        # Makefile para compilación y ejecición de procesos
+│   ├── server                      # Ejecutable del buscador (servidor)
+│   └── client                      # Ejecutable de la interfaz de usuario (cliente)
+├── server.c                        # Código fuente principal del servidor
+├── client.c                        # Código fuente principal del cliente
+├── Makefile                        # Makefile para compilación y ejecución de procesos
+├── Dockerfile                      # Dockerización de la máquina virtual para el server
 ├── README.md                       # Este archivo
-└── run.sh                          # Script de ejecución
-```
-
----
-
-## 📁 Organización y Makefile
-
-Asegúrate de:
-
-1. Que tu CSV esté en la carpeta `data/`.
-
-2. Que el nombre del CSV en el `Makefile` coincida con el tuyo:
-
-```make
-CSV=./data/muse_dataset.csv
-```
-3. Puedes usar los comandos del Makefile por separado
-
-```bash
-make
-make run-searcher    # Ejecuta solo el searcher
-make run-interface   # Ejecuta solo la interfaz
-make run-both        # Ejecuta ambos en terminales separadas (sin indexación)
-make run-all         # Ejecuta indexador, searcher e interfaz en terminales separadas
-```
-4. Puedes usar los comandos automáticos:
-
-```bash
-./run.sh              # Ejecuta searcher e interfaz en terminales separadas (sin indexación)
-./indexing.sh         # Ejecuta indexador, searcher e interfaz en terminales separadas
-./info.sh             # Ejecuta la información del proceso en memoria
+├── deploy.sh                       # Script para subir la máquina virtual del servidor a gcloud
+├── client.sh                       # Script de ejecución del cliente (local)
+└── start.sh                        # Script de ejecución para el Dockerfile (server)
 ```
 
 ---
@@ -210,14 +185,14 @@ make run-all         # Ejecuta indexador, searcher e interfaz en terminales sepa
 * **Persistencia**: los índices binarios evitan reindexar cada vez.
 * **Búsqueda eficiente**: solo se accede al arousal y artista solicitados.
 * **Múltiples entradas**: si una canción tiene varias emociones, se indexa múltiples veces.
-
+* **Conexión por socket en la nube**: El servidor se encuentra en constante espera de clientes ya que está desplegado en una máquina virtual de Google Cloud.
 ---
 
 ## 📌 Requisitos
 
-* Linux/Unix (uso de `mkfifo`, señales, etc.).
-* Compilador C (GCC).
-* Dataset `.csv` ubicado en `data/`.
+* Linux/Unix (uso de sockets y hilos)
+* GCC (compilador C)
+* wget, make, etc.
 
 ---
 
@@ -227,7 +202,7 @@ make run-all         # Ejecuta indexador, searcher e interfaz en terminales sepa
 * Natalia Lesmes
 * Juan Manuel Cristancho
 
-Desarrollado como parte de la práctica 1 de Sistemas Operativos.
+Desarrollado como parte de la práctica 2 de Sistemas Operativos.
 2025-1s | Universidad Nacional de Colombia
 
 🎧 ¡Gracias por usar MuSe!
