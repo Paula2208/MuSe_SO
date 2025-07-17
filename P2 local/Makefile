@@ -15,7 +15,7 @@ CSV_FILE=./Data/muse1gb.csv # Asegúrate de que esta ruta sea correcta
 # Asumimos que indexador.c contiene la lógica de indexación
 # y que server.c/client.c tienen su propia lógica.
 SRC_INDEXER=helpers/indexador.c
-SRC_SERVER=server.c
+SRC_SERVER=server_local.c
 SRC_CLIENT=client.c
 
 # --- Nombres de los Ejecutables ---
