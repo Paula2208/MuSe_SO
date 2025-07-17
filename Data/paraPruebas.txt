@@ -1,0 +1,90 @@
+CSV=./Data/muse.csv
+
+Ponerlo en el MakeFile
+muse.csv pesa solo 18Mb
+
+CSV=./Data/muse4gb.csv
+
+Ponerlo en el MakeFile
+muse4gb.csv pesa casi 5GB :'D
+
+Para que funcione, este archivo debe estar en
+la carpeta Data.
+
+*IMPORTANTE* No intentar subir el archivo de 5GB a github
+o se va a morir por espacio :(. Tenerlo solo en local para
+la presentación y otras pruebas.
+
+
+gcloud run deploy miservidor \
+  --image gcr.io/sistemas-operativos-466209/miserver \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 3550
+
+gcloud compute instances create misocket-server \
+  --zone=us-central1-a \
+  --machine-type=e2-medium \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --tags=socket-server \
+  --metadata startup-script='#! /bin/bash
+    apt update
+    apt install -y make gcc wget unzip
+    cd /home
+    git clone https://github.com/Paula2208/MuSe_SO.git
+    cd MuSe_SO
+    chmod +x start.sh
+    ./start.sh'
+
+
+--------------------------------------------
+
+💻 Alternativa: Desplegar con Google Compute Engine (para sockets TCP)
+
+Si tu servidor se basa en sockets TCP sin HTTP, usa este enfoque:
+🚀 Paso 1: Crear una máquina virtual
+
+gcloud compute instances create misocket-server \
+  --zone=us-central1-a \
+  --machine-type=e2-medium \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --tags=socket-server \
+  --metadata startup-script='#! /bin/bash
+    apt update
+    apt install -y make gcc wget unzip
+    cd /home
+    git clone https://github.com/YOUR_USER/YOUR_REPO.git
+    cd YOUR_REPO
+    chmod +x start.sh
+    ./start.sh'
+
+⚠️ Asegúrate de subir tu repo a GitHub o GitLab.
+🔓 Paso 2: Abrir el puerto 3550
+
+gcloud compute firewall-rules create allow-socket-server \
+  --allow tcp:3550 \
+  --target-tags=socket-server \
+  --source-ranges=0.0.0.0/0 \
+  --description="Permitir tráfico al puerto 3550"
+
+✅ Paso 3: Conectar el cliente
+
+Luego de que se despliegue la VM, obtén su IP pública:
+
+gcloud compute instances list
+
+En client.c, reemplaza localhost por la IP pública de la instancia.
+
+Ejemplo:
+
+inet_pton(AF_INET, "34.120.0.25", &server_addr.sin_addr);
+
+-----------------------------------------
+
+gcloud compute instances delete misocket-server --zone=us-central1-a
+
+gcloud compute instances list
+

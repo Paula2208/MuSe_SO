@@ -17,8 +17,8 @@ gcloud compute instances create misocket-server \
     apt update
     apt install -y make gcc wget unzip
     cd /home
-    git clone https://github.com/YOUR_USER/YOUR_REPO.git
-    cd YOUR_REPO
+    git clone https://github.com/Paula2208/MuSe_SO.git
+    cd MuSe_SO
     chmod +x start.sh
     ./start.sh'
 
