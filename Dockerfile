@@ -21,11 +21,8 @@ WORKDIR /app
 # Copiar todos los archivos del proyecto
 COPY . .
 
-# Descargar CSV desde Google Drive (reemplazr con el ID del archivo - se obtiene de la URL)
-# Usamos la herramienta gdown para manejar Google Drive fácilmente
-RUN wget -q https://raw.githubusercontent.com/wkentaro/gdown/master/gdown.py \
-    && python3 gdown.py --id 1axbzTnzRk-wazs2KoIGjijAn0QSfuLnm -O ./Data/muse1gb.csv \
-    && rm gdown.py
+# Usar wget directo desde Hugging Face
+RUN wget -O ./Data/muse1gb.csv https://huggingface.co/datasets/pauguzman/muse-csv/resolve/main/muse1gb.csv
 
 # Dar permisos de ejecución al start script
 RUN chmod +x start.sh
