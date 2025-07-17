@@ -12,7 +12,7 @@
 #include "./helpers/indexador.h"
 
 #define PORT 3550
-#define HOST "https://muse-so.onrender.com"  // "127.0.0.1" // Cambiar a la IP del servidor si es necesario
+#define HOST "127.0.0.1" // Cambiar a la IP del servidor si es necesario
 
 int clientfd = -1;
 

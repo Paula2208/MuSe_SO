@@ -27,5 +27,8 @@ RUN wget -O ./Data/muse1gb.csv https://huggingface.co/datasets/pauguzman/muse-cs
 # Dar permisos de ejecución al start script
 RUN chmod +x start.sh
 
+# Puerto expuesto por el servidor (ajustado en server.c)
+EXPOSE 3550
+
 # Comando de inicio
 CMD ["./start.sh"]
