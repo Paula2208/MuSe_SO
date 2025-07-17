@@ -1,4 +1,4 @@
-// server.c (Multihilo y listo para Render)
+// server.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,25 +9,29 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <time.h>
-#include <pthread.h> // NUEVO: Librería para hilos
 
 #include "./helpers/indexador.h"
 
-// #define PORT 3550 // MODIFICADO: El puerto ahora será dinámico
-#define BACKLOG 10 // Aumentado un poco para entornos de producción
+#define PORT 3550
+#define BACKLOG 8
 
-// Estructura para pasar argumentos al hilo del cliente
-// NUEVO: Necesitamos pasar tanto el socket como la ruta al CSV
-typedef struct {
-    int client_socket;
-    char csv_path[256];
-} client_args_t;
+// Sockets file descriptors
+int serverfd = -1;
+int clientfd = -1;
 
+void clearEmotionIndex();
 
-// --- Declaraciones de funciones ---
-void *handle_client(void *args); // NUEVO: Función que manejará cada cliente
+// Manejador de Ctrl+C
+void handle_sigint(int sig) {
+    printf("\n🔴 Señal SIGINT recibida. Cerrando servidor...\n");
 
-// --- Código del Servidor ---
+    if (clientfd != -1) close(clientfd);
+    if (serverfd != -1) close(serverfd);
+    
+    clearEmotionIndex();
+    printf("🛑 Servidor cerrado de forma segura.\n");
+    exit(0);
+}
 
 EmotionIndex *loadEmotionIndex(const char *emotion) {
     char path[256];
@@ -209,90 +213,8 @@ Song readSongAt(FILE *file, long pos) {
     return song;
 }
 
-// NUEVO: Toda la lógica de manejo de un cliente se mueve a esta función.
-// Cada cliente tendrá su propia instancia de esta función ejecutándose en un hilo.
-void *handle_client(void *args) {
-    client_args_t *client_data = (client_args_t *)args;
-    int clientfd = client_data->client_socket;
-    const char *csv_path = client_data->csv_path;
-    
-    printf("🧵 Hilo creado para manejar al cliente con socket FD: %d\n", clientfd);
 
-    char prev_emotion[MAX_FIELD] = "";
-
-    // Bucle de comunicación con este cliente específico
-    while (1) {
-        int arousal;
-        char emotion[MAX_FIELD];
-        char artist[MAX_FIELD];
-
-        // Recibir datos de búsqueda del cliente
-        ssize_t bytes_received;
-        bytes_received = recv(clientfd, &arousal, sizeof(int), 0);
-        if (bytes_received <= 0) break;
-
-        bytes_received = recv(clientfd, emotion, sizeof(emotion), 0);
-        if (bytes_received <= 0) break;
-
-        bytes_received = recv(clientfd, artist, sizeof(artist), 0);
-        if (bytes_received <= 0) break;
-        
-        printf("[Hilo %d] Búsqueda: Arousal=%d, Emotion='%s', Artist='%s'\n", clientfd, arousal, emotion, artist);
-
-        // Cargar índice si es necesario
-        // NOTA: La carga del índice no es segura para hilos (thread-safe) si múltiples
-        // hilos intentan modificar `emotion_index_head` al mismo tiempo. Para esta
-        // práctica, asumimos que las búsquedas de nuevas emociones son infrecuentes.
-        // En un sistema real, se necesitaría un mutex (un cerrojo).
-        if (strcmp(prev_emotion, emotion) != 0) {
-            clearEmotionIndex(); // ¡CUIDADO! Esto no es thread-safe.
-            loadEmotionIndex(emotion);
-            snprintf(prev_emotion, MAX_FIELD, "%s", emotion);
-        }
-        
-        // Buscar en el índice
-        EmotionIndex* eidx = emotion_index_head;
-        ArousalIndex* ai = (eidx && arousal >= 0 && arousal <= 100) ? &eidx->arousals[arousal] : NULL;
-        unsigned int h = hash_artist(artist);
-        ArtistNode* an = ai ? ai->buckets[h] : NULL;
-        while(an && strcmp(an->artist, artist) != 0) an = an->next;
-
-        long found = 0;
-        PosNode* positions_head = an ? an->positions : NULL;
-        for (PosNode* pn = positions_head; pn; pn = pn->next) found++;
-
-        send(clientfd, &found, sizeof(long), 0);
-
-        if (found > 0) {
-            char confirm;
-            if (recv(clientfd, &confirm, 1, 0) <= 0 || confirm != 'y') {
-                printf("[Hilo %d] El cliente no quiere ver los resultados.\n", clientfd);
-                continue;
-            }
-            
-            FILE *songs_file = fopen(csv_path, "r");
-            if (!songs_file) {
-                perror("[Hilo] Error abriendo CSV");
-                continue;
-            }
-
-            for (PosNode* pn = positions_head; pn; pn = pn->next) {
-                Song s = readSongAt(songs_file, pn->pos);
-                send(clientfd, &s, sizeof(Song), 0);
-            }
-            
-            Song terminator = {0};
-            send(clientfd, &terminator, sizeof(Song), 0);
-            fclose(songs_file);
-        }
-    }
-
-    printf("❌ Cliente con FD %d desconectado. Cerrando hilo.\n", clientfd);
-    close(clientfd);
-    free(client_data); // Liberar la memoria que asignamos para los argumentos
-    pthread_exit(NULL);
-}
-
+// --- Inicio del código del servidor ---
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -301,14 +223,13 @@ int main(int argc, char *argv[]) {
     }
     const char *csv_path = argv[1];
 
-    int serverfd;
-    struct sockaddr_in server_addr;
+    struct sockaddr_in server, client;
+    socklen_t lenclient;
     int opt = 1;
 
-    // MODIFICADO: Obtener puerto de Render o usar uno por defecto
-    const char *port_str = getenv("PORT");
-    int port = port_str ? atoi(port_str) : 3550;
+    signal(SIGINT, handle_sigint);
 
+    // 1. Creación del Socket
     serverfd = socket(AF_INET, SOCK_STREAM, 0);
     if (serverfd == -1) {
         perror("❌ Error creando socket del servidor");
@@ -316,57 +237,105 @@ int main(int argc, char *argv[]) {
     }
     setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-    server_addr.sin_addr.s_addr = INADDR_ANY; // Escuchar en 0.0.0.0
+    // 2. Configuración del Bind
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = INADDR_ANY;
+    memset(server.sin_zero, 0, sizeof(server.sin_zero));
 
-    if (bind(serverfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+    if (bind(serverfd, (struct sockaddr *)&server, sizeof(server)) == -1) {
         perror("❌ Error al hacer bind");
         exit(EXIT_FAILURE);
     }
 
+    // 3. Poner en escucha
     if (listen(serverfd, BACKLOG) == -1) {
         perror("❌ Error al poner en escucha");
         exit(EXIT_FAILURE);
     }
 
-    printf("🚀 Servidor multihilo escuchando en el puerto %d...\n", port);
+    printf("🚀 Servidor (Searcher) escuchando en el puerto %d...\n", PORT);
 
-    // MODIFICADO: Bucle principal ahora solo acepta conexiones y crea hilos
-    while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        int clientfd = accept(serverfd, (struct sockaddr *)&client_addr, &client_len);
-
-        if (clientfd < 0) {
+    // 4. Aceptar conexión del cliente (Interface)
+     while (1) {
+        lenclient = sizeof(client);
+        clientfd = accept(serverfd, (struct sockaddr *)&client, &lenclient);
+        if (clientfd == -1) {
             perror("❌ Error al aceptar conexión");
-            continue; // Seguir intentando
-        }
-
-        printf("✅ Conexión aceptada de %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
-        // Preparar argumentos para el nuevo hilo
-        client_args_t *args = malloc(sizeof(client_args_t));
-        if (!args) {
-            perror("malloc failed");
-            close(clientfd);
             continue;
         }
-        args->client_socket = clientfd;
-        strncpy(args->csv_path, csv_path, sizeof(args->csv_path) - 1);
-        
-        // Crear el hilo para manejar al cliente
-        pthread_t thread_id;
-        if (pthread_create(&thread_id, NULL, handle_client, (void *)args) != 0) {
-            perror("❌ No se pudo crear el hilo");
-            free(args);
-            close(clientfd);
+
+        printf("✅ Cliente (Interface) conectado desde %s:%d\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port));
+
+        // --- Lógica del Searcher ---
+        char prev_emotion[MAX_FIELD] = "";
+
+        while (1) {
+            int arousal;
+            char emotion[MAX_FIELD];
+            char artist[MAX_FIELD];
+
+            // Recibir datos de búsqueda del cliente
+            if (recv(clientfd, &arousal, sizeof(int), 0) <= 0) break;
+            if (recv(clientfd, emotion, sizeof(emotion), 0) <= 0) break;
+            if (recv(clientfd, artist, sizeof(artist), 0) <= 0) break;
+            
+            printf("[searcher] Búsqueda recibida: Arousal=%d, Emotion='%s', Artist='%s'\n", arousal, emotion, artist);
+
+            // Cargar índice si es necesario
+            if (strcmp(prev_emotion, emotion) != 0) {
+                clearEmotionIndex();
+                loadEmotionIndex(emotion);
+                /*strncpy(prev_emotion, emotion, MAX_FIELD - 1);
+                prev_emotion[MAX_FIELD-1] = '\0';*/
+                snprintf(prev_emotion, MAX_FIELD, "%s", emotion);
+            }
+            
+            // Buscar en el índice
+            EmotionIndex* eidx = emotion_index_head; // Asume que loadEmotionIndex la popula
+            ArousalIndex* ai = (eidx && arousal >= 0 && arousal <= 100) ? &eidx->arousals[arousal] : NULL;
+            unsigned int h = hash_artist(artist);
+            ArtistNode* an = ai ? ai->buckets[h] : NULL;
+            while(an && strcmp(an->artist, artist) != 0) an = an->next;
+
+            long found = 0;
+            PosNode* positions_head = an ? an->positions : NULL;
+            for (PosNode* pn = positions_head; pn; pn = pn->next) found++;
+
+            // Enviar cantidad de resultados al cliente
+            send(clientfd, &found, sizeof(long), 0);
+            printf("[searcher] Se encontraron %ld canciones. Enviando recuento al cliente.\n", found);
+
+            if (found > 0) {
+                char confirm;
+                if (recv(clientfd, &confirm, 1, 0) <= 0 || confirm != 'y') {
+                    printf("[searcher] El cliente no quiere ver los resultados.\n");
+                    continue;
+                }
+                
+                printf("[searcher] El cliente confirmó. Enviando canciones...\n");
+                FILE *songs_file = fopen(csv_path, "r");
+                if (!songs_file) {
+                    perror("[searcher] Error abriendo CSV de canciones");
+                    continue;
+                }
+
+                for (PosNode* pn = positions_head; pn; pn = pn->next) {
+                    Song s = readSongAt(songs_file, pn->pos);
+                    send(clientfd, &s, sizeof(Song), 0);
+                }
+                
+                Song terminator = {0}; // Canción vacía para marcar el final
+                send(clientfd, &terminator, sizeof(Song), 0);
+                fclose(songs_file);
+                printf("[searcher] Envío de canciones completado.\n");
+            }
         }
 
-        // Desvincular el hilo para que sus recursos se liberen automáticamente al terminar
-        pthread_detach(thread_id);
+        printf("❌ Cliente desconectado. Cerrando servidor.\n");
+        close(clientfd);
+        close(serverfd);
+        clearEmotionIndex();
     }
-
-    close(serverfd);
     return 0;
 }
