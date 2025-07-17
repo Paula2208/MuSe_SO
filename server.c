@@ -243,7 +243,7 @@ void *handle_client(void *args) {
         // NOTA: La carga del índice no es segura para hilos (thread-safe) si múltiples
         // hilos intentan modificar `emotion_index_head` al mismo tiempo. Para esta
         // práctica, asumimos que las búsquedas de nuevas emociones son infrecuentes.
-        // En un sistema real, se necesitaría un mutex (un cerrojo).
+        // En un sistema real, se necesitaría un mutex (un cerrojo). -> Será una acción futura.
         if (strcmp(prev_emotion, emotion) != 0) {
             clearEmotionIndex(); // ¡CUIDADO! Esto no es thread-safe.
             loadEmotionIndex(emotion);

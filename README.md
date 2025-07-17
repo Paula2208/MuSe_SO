@@ -9,7 +9,7 @@ MuSe es un sistema de búsqueda de canciones basado en emociones, intensidad emo
 El sistema se ha actualizado para usar **Sockets TCP/IP** entre los procesos:
 
 - El **servidor** (`server`) escucha en un puerto fijo (`3550`) y responde a búsquedas desde clientes.
-- El **cliente** (`client`) se conecta por red y permite búsquedas interactivas desde una terminal.
+- El **cliente** (`client`) se conecta por red y permite búsquedas interactivas desde una terminal. **Por favor usar un solo cliente**, como acción futura se incluirá correctamente la conexión de varios clientes.
 - Esto permite ejecución distribuida: puedes ejecutar el cliente en tu PC y el servidor en la nube.
 
 ---
