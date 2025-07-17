@@ -257,82 +257,85 @@ int main(int argc, char *argv[]) {
     printf("🚀 Servidor (Searcher) escuchando en el puerto %d...\n", PORT);
 
     // 4. Aceptar conexión del cliente (Interface)
-    lenclient = sizeof(client);
-    clientfd = accept(serverfd, (struct sockaddr *)&client, &lenclient);
-    if (clientfd == -1) {
-        perror("❌ Error al aceptar conexión");
-        exit(EXIT_FAILURE);
-    }
-    printf("✅ Cliente (Interface) conectado desde %s:%d\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port));
-
-    // --- Lógica del Searcher ---
-    char prev_emotion[MAX_FIELD] = "";
-
-    while (1) {
-        int arousal;
-        char emotion[MAX_FIELD];
-        char artist[MAX_FIELD];
-
-        // Recibir datos de búsqueda del cliente
-        if (recv(clientfd, &arousal, sizeof(int), 0) <= 0) break;
-        if (recv(clientfd, emotion, sizeof(emotion), 0) <= 0) break;
-        if (recv(clientfd, artist, sizeof(artist), 0) <= 0) break;
-        
-        printf("[searcher] Búsqueda recibida: Arousal=%d, Emotion='%s', Artist='%s'\n", arousal, emotion, artist);
-
-        // Cargar índice si es necesario
-        if (strcmp(prev_emotion, emotion) != 0) {
-            clearEmotionIndex();
-            loadEmotionIndex(emotion);
-            /*strncpy(prev_emotion, emotion, MAX_FIELD - 1);
-            prev_emotion[MAX_FIELD-1] = '\0';*/
-            snprintf(prev_emotion, MAX_FIELD, "%s", emotion);
+     while (1) {
+        lenclient = sizeof(client);
+        clientfd = accept(serverfd, (struct sockaddr *)&client, &lenclient);
+        if (clientfd == -1) {
+            perror("❌ Error al aceptar conexión");
+            continue;
         }
-        
-        // Buscar en el índice
-        EmotionIndex* eidx = emotion_index_head; // Asume que loadEmotionIndex la popula
-        ArousalIndex* ai = (eidx && arousal >= 0 && arousal <= 100) ? &eidx->arousals[arousal] : NULL;
-        unsigned int h = hash_artist(artist);
-        ArtistNode* an = ai ? ai->buckets[h] : NULL;
-        while(an && strcmp(an->artist, artist) != 0) an = an->next;
 
-        long found = 0;
-        PosNode* positions_head = an ? an->positions : NULL;
-        for (PosNode* pn = positions_head; pn; pn = pn->next) found++;
+        printf("✅ Cliente (Interface) conectado desde %s:%d\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port));
 
-        // Enviar cantidad de resultados al cliente
-        send(clientfd, &found, sizeof(long), 0);
-        printf("[searcher] Se encontraron %ld canciones. Enviando recuento al cliente.\n", found);
+        // --- Lógica del Searcher ---
+        char prev_emotion[MAX_FIELD] = "";
 
-        if (found > 0) {
-            char confirm;
-            if (recv(clientfd, &confirm, 1, 0) <= 0 || confirm != 'y') {
-                printf("[searcher] El cliente no quiere ver los resultados.\n");
-                continue;
+        while (1) {
+            int arousal;
+            char emotion[MAX_FIELD];
+            char artist[MAX_FIELD];
+
+            // Recibir datos de búsqueda del cliente
+            if (recv(clientfd, &arousal, sizeof(int), 0) <= 0) break;
+            if (recv(clientfd, emotion, sizeof(emotion), 0) <= 0) break;
+            if (recv(clientfd, artist, sizeof(artist), 0) <= 0) break;
+            
+            printf("[searcher] Búsqueda recibida: Arousal=%d, Emotion='%s', Artist='%s'\n", arousal, emotion, artist);
+
+            // Cargar índice si es necesario
+            if (strcmp(prev_emotion, emotion) != 0) {
+                clearEmotionIndex();
+                loadEmotionIndex(emotion);
+                /*strncpy(prev_emotion, emotion, MAX_FIELD - 1);
+                prev_emotion[MAX_FIELD-1] = '\0';*/
+                snprintf(prev_emotion, MAX_FIELD, "%s", emotion);
             }
             
-            printf("[searcher] El cliente confirmó. Enviando canciones...\n");
-            FILE *songs_file = fopen(csv_path, "r");
-            if (!songs_file) {
-                perror("[searcher] Error abriendo CSV de canciones");
-                continue;
-            }
+            // Buscar en el índice
+            EmotionIndex* eidx = emotion_index_head; // Asume que loadEmotionIndex la popula
+            ArousalIndex* ai = (eidx && arousal >= 0 && arousal <= 100) ? &eidx->arousals[arousal] : NULL;
+            unsigned int h = hash_artist(artist);
+            ArtistNode* an = ai ? ai->buckets[h] : NULL;
+            while(an && strcmp(an->artist, artist) != 0) an = an->next;
 
-            for (PosNode* pn = positions_head; pn; pn = pn->next) {
-                Song s = readSongAt(songs_file, pn->pos);
-                send(clientfd, &s, sizeof(Song), 0);
+            long found = 0;
+            PosNode* positions_head = an ? an->positions : NULL;
+            for (PosNode* pn = positions_head; pn; pn = pn->next) found++;
+
+            // Enviar cantidad de resultados al cliente
+            send(clientfd, &found, sizeof(long), 0);
+            printf("[searcher] Se encontraron %ld canciones. Enviando recuento al cliente.\n", found);
+
+            if (found > 0) {
+                char confirm;
+                if (recv(clientfd, &confirm, 1, 0) <= 0 || confirm != 'y') {
+                    printf("[searcher] El cliente no quiere ver los resultados.\n");
+                    continue;
+                }
+                
+                printf("[searcher] El cliente confirmó. Enviando canciones...\n");
+                FILE *songs_file = fopen(csv_path, "r");
+                if (!songs_file) {
+                    perror("[searcher] Error abriendo CSV de canciones");
+                    continue;
+                }
+
+                for (PosNode* pn = positions_head; pn; pn = pn->next) {
+                    Song s = readSongAt(songs_file, pn->pos);
+                    send(clientfd, &s, sizeof(Song), 0);
+                }
+                
+                Song terminator = {0}; // Canción vacía para marcar el final
+                send(clientfd, &terminator, sizeof(Song), 0);
+                fclose(songs_file);
+                printf("[searcher] Envío de canciones completado.\n");
             }
-            
-            Song terminator = {0}; // Canción vacía para marcar el final
-            send(clientfd, &terminator, sizeof(Song), 0);
-            fclose(songs_file);
-            printf("[searcher] Envío de canciones completado.\n");
         }
-    }
 
-    printf("❌ Cliente desconectado. Cerrando servidor.\n");
-    close(clientfd);
-    close(serverfd);
-    clearEmotionIndex();
+        printf("❌ Cliente desconectado. Cerrando servidor.\n");
+        close(clientfd);
+        close(serverfd);
+        clearEmotionIndex();
+    }
     return 0;
 }
