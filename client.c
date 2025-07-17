@@ -12,7 +12,7 @@
 #include "./helpers/indexador.h"
 
 #define PORT 3550
-#define HOST "127.0.0.1" // Cambiar a la IP del servidor si es necesario
+#define HOST "34.44.216.84" // "127.0.0.1" // Cambiar a la IP del servidor si es necesario
 
 int clientfd = -1;
 
