@@ -2,6 +2,8 @@
 
 MuSe es un sistema de búsqueda de canciones basado en emociones, intensidad emocional (arousal) y artista. Está diseñado en C utilizando estructuras eficientes como **tablas hash** y comunicación entre procesos (máquinas) mediante **sockets**. El sistema permite indexar y consultar un dataset extenso de canciones (\~2GB a \~4GB), ofreciendo resultados personalizados y filtrados por criterios afectivos.
 
+GITHUB: [**https://github.com/Paula2208/MuSe_SO**](https://github.com/Paula2208/MuSe_SO)
+
 ---
 
 ## 📡 Nueva Arquitectura: Cliente–Servidor con Sockets
