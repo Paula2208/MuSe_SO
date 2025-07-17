@@ -1,4 +1,4 @@
 #!/bin/bash
 
 make
-make run-server
+make run-client
